@@ -1,0 +1,557 @@
+/* ========================================
+   语音键盘 VoiceKeys — Main Application
+   ======================================== */
+
+// ── Pinyin Dictionary (demo subset) ──
+const PINYIN_MAP = {
+  ni: ["你","尼","泥","逆","匿"], hao: ["好","号","毫","豪","耗"],
+  wo: ["我","握","窝","沃","卧"], shi: ["是","十","时","事","世"],
+  de: ["的","得","地","德"], ma: ["吗","妈","马","骂","麻"],
+  ba: ["吧","八","把","爸","拔"], zhe: ["这","者","着","哲"],
+  ge: ["个","各","歌","哥","格"], ren: ["人","认","任","仁","忍"],
+  da: ["大","打","达","答","搭"], xiao: ["小","笑","校","效","消"],
+  zhong: ["中","种","重","钟","终"], guo: ["国","过","果","锅"],
+  you: ["有","又","右","油","游"], men: ["们","门","闷"],
+  bu: ["不","步","部","布","补"], le: ["了","乐","勒"],
+  zai: ["在","再","载","灾"], he: ["和","河","合","何","喝"],
+  ta: ["他","她","它","塔"], shang: ["上","尚","伤","商"],
+  xia: ["下","夏","吓","虾"], tian: ["天","田","甜","添"],
+  qi: ["气","七","起","期","齐"], lai: ["来","赖","莱"],
+  qu: ["去","取","趣","区"], dui: ["对","队","兑"],
+  xie: ["写","谢","些","鞋"], kan: ["看","刊","砍"],
+  shuo: ["说","硕"], ting: ["听","停","挺","厅"],
+  dong: ["东","动","懂","冬"], xi: ["西","习","喜","洗"],
+  bei: ["北","被","背","杯"], nan: ["南","难","男"],
+  jia: ["家","加","假","价"], yao: ["要","药","摇","咬"],
+  hui: ["会","回","灰","汇"], neng: ["能"],
+  xiang: ["想","向","像","象","香"], ai: ["爱","哎","矮"],
+  huan: ["欢","换","还","环"], ying: ["英","应","影","营"],
+  yu: ["语","雨","鱼","与"], wen: ["文","问","闻","温"],
+  pin: ["拼","品","贫"], yin: ["音","因","银","印"],
+  jian: ["见","键","间","建"], pan: ["盘","判","盼"],
+  dian: ["点","电","店","典"], hua: ["话","花","画","化"],
+  zhuan: ["转","专","赚","砖"], mei: ["没","美","每","梅"],
+  zuo: ["做","坐","左","作"], xue: ["学","雪","血"],
+  lao: ["老","劳","姥"], shi: ["是","十","时","事","世"],
+  chang: ["长","常","场","唱"], cheng: ["成","城","程","称"],
+  fang: ["方","放","房","防"], gong: ["工","公","功","共"],
+  ji: ["机","几","及","记","级"], li: ["里","力","立","利"],
+  ming: ["明","名","命","鸣"], qing: ["请","清","情","青"],
+  ri: ["日"], sheng: ["生","声","省","胜"],
+  si: ["四","思","死","似"], wang: ["王","网","往","望"],
+  xin: ["新","心","信","辛"], yi: ["一","已","以","意"],
+  yuan: ["元","原","远","园"], zhi: ["知","只","之","直"],
+};
+
+const DEFAULT_PHRASES = [
+  { label: "你好", tts: "你好" },
+  { label: "谢谢", tts: "谢谢" },
+  { label: "对不起", tts: "对不起" },
+  { label: "请帮我", tts: "请帮我" },
+  { label: "Hello", tts: "Hello" },
+  { label: "Thank you", tts: "Thank you" },
+  { label: "Excuse me", tts: "Excuse me" },
+  { label: "Yes", tts: "Yes" },
+  { label: "No", tts: "No" },
+  { label: "我需要帮助", tts: "我需要帮助" },
+  { label: "请再说一次", tts: "请再说一次" },
+  { label: "I need help", tts: "I need help" },
+];
+
+const PINYIN_ROWS = [
+  ["q","w","e","r","t","y","u","i","o","p"],
+  ["a","s","d","f","g","h","j","k","l"],
+  ["z","x","c","v","b","n","m","⌫"],
+];
+const ENGLISH_ROWS = [
+  ["Q","W","E","R","T","Y","U","I","O","P"],
+  ["A","S","D","F","G","H","J","K","L"],
+  ["Z","X","C","V","B","N","M","⌫"],
+];
+
+// ── Storage helpers ──
+const Storage = {
+  get(key, fallback) {
+    try { return JSON.parse(localStorage.getItem('vk_' + key)) ?? fallback; }
+    catch { return fallback; }
+  },
+  set(key, val) {
+    try { localStorage.setItem('vk_' + key, JSON.stringify(val)); } catch {}
+  },
+};
+
+// ── App State ──
+const state = {
+  text: '',
+  pinyinBuffer: '',
+  candidates: [],
+  mode: 'pinyin',        // pinyin | english | handwrite
+  isSpeaking: false,
+  ttsLang: Storage.get('ttsLang', 'zh'),
+  showPhrases: false,
+  showSettings: false,
+  theme: Storage.get('theme', 'auto'),
+  speechRate: Storage.get('speechRate', 0.9),
+  speechPitch: Storage.get('speechPitch', 1.0),
+  history: Storage.get('history', []),
+  savedPhrases: Storage.get('savedPhrases', []),
+  activeKey: null,
+};
+
+// ── SVG Icons ──
+const icons = {
+  speaker: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" opacity="0.15"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>`,
+  play: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+  stop: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
+  backspace: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 002-2V6a2 2 0 00-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>`,
+  globe: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>`,
+  draw: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>`,
+  close: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`,
+  save: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
+  playSmall: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+  trash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>`,
+  clock: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+};
+
+// ── Theme ──
+function applyTheme() {
+  const t = state.theme;
+  if (t === 'auto') {
+    document.documentElement.removeAttribute('data-theme');
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    document.documentElement.setAttribute('data-theme', mq.matches ? 'dark' : '');
+  } else {
+    document.documentElement.setAttribute('data-theme', t);
+  }
+}
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (state.theme === 'auto') applyTheme();
+});
+
+// ── TTS ──
+function speak(content) {
+  if (!content || !content.trim()) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(content);
+  utter.lang = state.ttsLang === 'zh' ? 'zh-CN' : 'en-US';
+  utter.rate = state.speechRate;
+  utter.pitch = state.speechPitch;
+  utter.onstart = () => { state.isSpeaking = true; render(); };
+  utter.onend = () => { state.isSpeaking = false; render(); };
+  utter.onerror = () => { state.isSpeaking = false; render(); };
+  window.speechSynthesis.speak(utter);
+
+  // Add to history
+  addToHistory(content);
+}
+
+function stopSpeaking() {
+  window.speechSynthesis.cancel();
+  state.isSpeaking = false;
+  render();
+}
+
+function addToHistory(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  // Avoid duplicating the most recent entry
+  if (state.history.length > 0 && state.history[0].text === trimmed) return;
+  state.history.unshift({ text: trimmed, time: Date.now() });
+  if (state.history.length > 50) state.history = state.history.slice(0, 50);
+  Storage.set('history', state.history);
+}
+
+function savePhrase(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  if (state.savedPhrases.some(p => p.text === trimmed)) return;
+  state.savedPhrases.unshift({ text: trimmed, time: Date.now() });
+  Storage.set('savedPhrases', state.savedPhrases);
+  render();
+}
+
+function removeSavedPhrase(idx) {
+  state.savedPhrases.splice(idx, 1);
+  Storage.set('savedPhrases', state.savedPhrases);
+  render();
+}
+
+function clearHistory() {
+  state.history = [];
+  Storage.set('history', []);
+  render();
+}
+
+// ── Pinyin lookup ──
+function updateCandidates() {
+  if (state.mode === 'pinyin' && state.pinyinBuffer.length > 0) {
+    const lower = state.pinyinBuffer.toLowerCase();
+    const exact = PINYIN_MAP[lower] || [];
+    const partials = Object.entries(PINYIN_MAP)
+      .filter(([k]) => k.startsWith(lower) && k !== lower)
+      .flatMap(([, v]) => v.slice(0, 2));
+    state.candidates = [...exact, ...partials].slice(0, 9);
+  } else {
+    state.candidates = [];
+  }
+}
+
+// ── Key handling ──
+function handleKey(key) {
+  state.activeKey = key;
+  setTimeout(() => { state.activeKey = null; render(); }, 100);
+
+  if (state.mode === 'pinyin') {
+    if (key === '⌫') {
+      if (state.pinyinBuffer.length > 0) {
+        state.pinyinBuffer = state.pinyinBuffer.slice(0, -1);
+      } else {
+        state.text = state.text.slice(0, -1);
+      }
+    } else if (key === 'space') {
+      if (state.candidates.length > 0) {
+        state.text += state.candidates[0];
+        state.pinyinBuffer = '';
+      } else {
+        state.text += ' ';
+      }
+    } else if (key === 'return') {
+      if (state.pinyinBuffer) {
+        state.text += state.pinyinBuffer;
+        state.pinyinBuffer = '';
+      } else {
+        state.text += '\n';
+      }
+    } else {
+      state.pinyinBuffer += key;
+    }
+  } else if (state.mode === 'english') {
+    if (key === '⌫') {
+      state.text = state.text.slice(0, -1);
+    } else if (key === 'space') {
+      state.text += ' ';
+    } else if (key === 'return') {
+      state.text += '\n';
+    } else {
+      state.text += key;
+    }
+  }
+  updateCandidates();
+  render();
+}
+
+function selectCandidate(c) {
+  state.text += c;
+  state.pinyinBuffer = '';
+  state.candidates = [];
+  render();
+}
+
+// ── Handwriting canvas ──
+let isDrawing = false;
+let lastPos = { x: 0, y: 0 };
+
+function getCanvasPos(e) {
+  const canvas = document.getElementById('hw-canvas');
+  if (!canvas) return { x: 0, y: 0 };
+  const rect = canvas.getBoundingClientRect();
+  const touch = e.touches ? e.touches[0] : e;
+  return {
+    x: (touch.clientX - rect.left) * (canvas.width / rect.width),
+    y: (touch.clientY - rect.top) * (canvas.height / rect.height),
+  };
+}
+
+function startDraw(e) {
+  e.preventDefault();
+  isDrawing = true;
+  lastPos = getCanvasPos(e);
+}
+
+function draw(e) {
+  e.preventDefault();
+  if (!isDrawing) return;
+  const canvas = document.getElementById('hw-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const pos = getCanvasPos(e);
+  ctx.beginPath();
+  ctx.moveTo(lastPos.x, lastPos.y);
+  ctx.lineTo(pos.x, pos.y);
+  const cs = getComputedStyle(document.documentElement);
+  ctx.strokeStyle = cs.getPropertyValue('--text-primary').trim() || '#1C1C1E';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  lastPos = pos;
+}
+
+function endDraw() { isDrawing = false; }
+
+function clearCanvas() {
+  const canvas = document.getElementById('hw-canvas');
+  if (canvas) {
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+// ── Time formatting ──
+function timeAgo(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+// ── Render ──
+function render() {
+  const app = document.getElementById('app');
+  const rows = state.mode === 'pinyin' ? PINYIN_ROWS : ENGLISH_ROWS;
+
+  app.innerHTML = `
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        ${icons.speaker}
+        <span class="header-title">语音键盘</span>
+        <span class="header-subtitle">VoiceKeys</span>
+      </div>
+      <div class="header-right">
+        <button class="lang-btn ${state.ttsLang === 'zh' ? 'active' : ''}" onclick="setTtsLang('zh')">中文</button>
+        <button class="lang-btn ${state.ttsLang === 'en' ? 'active' : ''}" onclick="setTtsLang('en')">EN</button>
+        <button class="icon-btn" onclick="toggleSettings()" aria-label="Settings">${icons.settings}</button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <!-- Composer -->
+      <div class="composer">
+        <textarea id="main-textarea" placeholder="点击键盘输入文字，然后朗读 …" oninput="onTextInput(this.value)">${escapeHtml(state.text)}</textarea>
+        <div class="composer-actions">
+          ${state.text ? `<button class="btn-clear" onclick="clearText()">${icons.close} 清除</button>` : ''}
+          ${state.text ? `<button class="btn-clear" onclick="saveCurrentText()">${icons.save} 保存</button>` : ''}
+          <button class="btn-phrases ${state.showPhrases ? 'active' : ''}" onclick="togglePhrases()">快捷短语</button>
+          <button class="btn-speak ${state.isSpeaking ? 'speaking' : 'ready'}"
+            onclick="${state.isSpeaking ? 'stopSpeaking()' : 'speakCurrent()'}"
+            ${!state.text.trim() && !state.isSpeaking ? 'disabled' : ''}>
+            ${state.isSpeaking ? icons.stop + ' 停止' : icons.play + ' 朗读'}
+          </button>
+        </div>
+      </div>
+
+      ${state.isSpeaking ? `
+        <div class="speak-indicator">
+          <div class="speak-bars">
+            ${[0,1,2,3,4].map(i => `<div class="speak-bar" style="height:${8+Math.random()*12}px;animation-delay:${i*0.1}s"></div>`).join('')}
+          </div>
+          <span>正在朗读…</span>
+        </div>
+      ` : ''}
+
+      ${state.showPhrases ? `
+        <div class="phrases-grid">
+          ${DEFAULT_PHRASES.map(p => `<button class="phrase-btn" onclick="usePhrase('${escapeAttr(p.tts)}')">${escapeHtml(p.label)}</button>`).join('')}
+        </div>
+      ` : ''}
+
+      ${state.savedPhrases.length > 0 ? `
+        <div class="saved-section">
+          <div class="saved-header">
+            <h3>已保存短语 Saved</h3>
+          </div>
+          <div class="saved-list">
+            ${state.savedPhrases.slice(0, 5).map((p, i) => `
+              <div class="saved-item">
+                <button onclick="speak('${escapeAttr(p.text)}')" title="朗读">${icons.playSmall}</button>
+                <span class="saved-item-text" onclick="loadText('${escapeAttr(p.text)}')">${escapeHtml(p.text)}</span>
+                <span class="saved-item-time">${timeAgo(p.time)}</span>
+                <button class="delete-btn" onclick="removeSavedPhrase(${i})" title="删除">${icons.trash}</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${state.history.length > 0 ? `
+        <div class="history-section">
+          <div class="history-header">
+            <h3>${icons.clock} 朗读历史 History</h3>
+            <button class="history-clear-btn" onclick="clearHistory()">清除</button>
+          </div>
+          <div class="history-list">
+            ${state.history.slice(0, 8).map(h => `
+              <div class="history-item" onclick="loadText('${escapeAttr(h.text)}')">
+                <span class="history-item-text">${escapeHtml(h.text)}</span>
+                <span class="history-item-time">${timeAgo(h.time)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+    </div>
+
+    <!-- Keyboard -->
+    <div class="keyboard">
+      <div class="mode-tabs">
+        <button class="mode-tab ${state.mode === 'pinyin' ? 'active' : ''}" onclick="setMode('pinyin')">拼音</button>
+        <button class="mode-tab ${state.mode === 'english' ? 'active' : ''}" onclick="setMode('english')">ABC</button>
+        <button class="mode-tab ${state.mode === 'handwrite' ? 'active' : ''}" onclick="setMode('handwrite')">${icons.draw} 手写</button>
+      </div>
+
+      ${state.mode === 'pinyin' ? `
+        <div class="candidate-bar">
+          ${state.pinyinBuffer ? `<span class="pinyin-display">${escapeHtml(state.pinyinBuffer)}</span>` : ''}
+          ${state.candidates.length > 0
+            ? state.candidates.map((c, i) => `<button class="candidate-btn ${i === 0 ? 'primary' : ''}" onclick="selectCandidate('${c}')">${c}</button>`).join('')
+            : (!state.pinyinBuffer ? '<span class="candidate-hint">输入拼音选择汉字</span>' : '')
+          }
+        </div>
+      ` : ''}
+
+      ${state.mode === 'handwrite' ? `
+        <div class="handwrite-area">
+          <div class="canvas-wrap">
+            <canvas id="hw-canvas" width="460" height="180"></canvas>
+            <div class="canvas-grid"></div>
+            <div class="canvas-hint">在此区域手写输入</div>
+            <div class="canvas-actions">
+              <button class="canvas-btn" onclick="clearCanvas()">清除</button>
+            </div>
+          </div>
+          <p class="handwrite-note">手写识别为演示模式; 实际应用中连接 OCR 引擎</p>
+        </div>
+      ` : `
+        <div class="key-rows">
+          ${rows.map(row => `
+            <div class="key-row">
+              ${row.map(k => {
+                const isSpecial = k === '⌫';
+                const isActive = state.activeKey === k;
+                return `<button class="key ${isSpecial ? 'special' : ''} ${isActive ? 'active' : ''}"
+                  onclick="handleKey('${k}')">${k === '⌫' ? icons.backspace : escapeHtml(k)}</button>`;
+              }).join('')}
+            </div>
+          `).join('')}
+          <div class="bottom-row">
+            <button class="key-globe" onclick="toggleLang()">${icons.globe}</button>
+            <button class="key-space" onclick="handleKey('space')">${state.mode === 'pinyin' ? '空格 / 选字' : 'space'}</button>
+            <button class="key-return" onclick="handleKey('return')">${state.mode === 'pinyin' && state.pinyinBuffer ? '确认' : '换行'}</button>
+          </div>
+        </div>
+      `}
+    </div>
+
+    ${state.showSettings ? renderSettings() : ''}
+  `;
+
+  // Re-attach canvas events
+  if (state.mode === 'handwrite') {
+    const canvas = document.getElementById('hw-canvas');
+    if (canvas) {
+      canvas.addEventListener('mousedown', startDraw);
+      canvas.addEventListener('mousemove', draw);
+      canvas.addEventListener('mouseup', endDraw);
+      canvas.addEventListener('mouseleave', endDraw);
+      canvas.addEventListener('touchstart', startDraw, { passive: false });
+      canvas.addEventListener('touchmove', draw, { passive: false });
+      canvas.addEventListener('touchend', endDraw);
+    }
+  }
+
+  // Keep textarea cursor at end
+  const ta = document.getElementById('main-textarea');
+  if (ta && document.activeElement !== ta) {
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
+}
+
+function renderSettings() {
+  return `
+    <div class="settings-overlay" onclick="toggleSettings()"></div>
+    <div class="settings-panel" onclick="event.stopPropagation()">
+      <div class="settings-header">
+        <h2>设置 Settings</h2>
+        <button class="settings-close" onclick="toggleSettings()">${icons.close}</button>
+      </div>
+      <div class="settings-body">
+        <div class="setting-group">
+          <label>主题 Theme</label>
+          <div class="theme-options">
+            <button class="theme-btn ${state.theme === 'auto' ? 'active' : ''}" onclick="setTheme('auto')">自动 Auto</button>
+            <button class="theme-btn ${state.theme === '' ? 'active' : ''}" onclick="setTheme('')">浅色 Light</button>
+            <button class="theme-btn ${state.theme === 'dark' ? 'active' : ''}" onclick="setTheme('dark')">深色 Dark</button>
+            <button class="theme-btn ${state.theme === 'high-contrast' ? 'active' : ''}" onclick="setTheme('high-contrast')">高对比</button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>语速 Speech Rate</label>
+          <div class="setting-row">
+            <span>慢 ← → 快</span>
+            <div class="slider-wrap">
+              <input type="range" min="0.3" max="2" step="0.1" value="${state.speechRate}" oninput="setSpeechRate(this.value)">
+              <span class="slider-value">${state.speechRate.toFixed(1)}</span>
+            </div>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>音调 Pitch</label>
+          <div class="setting-row">
+            <span>低 ← → 高</span>
+            <div class="slider-wrap">
+              <input type="range" min="0.5" max="2" step="0.1" value="${state.speechPitch}" oninput="setSpeechPitch(this.value)">
+              <span class="slider-value">${state.speechPitch.toFixed(1)}</span>
+            </div>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>关于 About</label>
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+            <span style="font-weight:600">语音键盘 VoiceKeys v1.0</span>
+            <span style="font-size:13px;color:var(--text-secondary)">Accessible Chinese + English TTS keyboard. Works offline as a PWA.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Escape helpers ──
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+function escapeAttr(s) {
+  return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ── Global handlers (called from onclick) ──
+window.setTtsLang = (lang) => { state.ttsLang = lang; Storage.set('ttsLang', lang); render(); };
+window.toggleSettings = () => { state.showSettings = !state.showSettings; render(); };
+window.togglePhrases = () => { state.showPhrases = !state.showPhrases; render(); };
+window.setMode = (m) => { state.mode = m; state.pinyinBuffer = ''; state.candidates = []; render(); };
+window.toggleLang = () => { state.mode = state.mode === 'pinyin' ? 'english' : 'pinyin'; state.pinyinBuffer = ''; render(); };
+window.handleKey = handleKey;
+window.selectCandidate = selectCandidate;
+window.speak = speak;
+window.stopSpeaking = stopSpeaking;
+window.speakCurrent = () => speak(state.text);
+window.clearText = () => { state.text = ''; state.pinyinBuffer = ''; state.candidates = []; render(); };
+window.onTextInput = (val) => { state.text = val; };
+window.usePhrase = (t) => { state.text += t; speak(t); render(); };
+window.loadText = (t) => { state.text = t; render(); };
+window.saveCurrentText = () => { savePhrase(state.text); };
+window.removeSavedPhrase = removeSavedPhrase;
+window.clearHistory = clearHistory;
+window.clearCanvas = clearCanvas;
+window.setTheme = (t) => { state.theme = t; Storage.set('theme', t); applyTheme(); render(); };
+window.setSpeechRate = (v) => { state.speechRate = parseFloat(v); Storage.set('speechRate', state.speechRate); render(); };
+window.setSpeechPitch = (v) => { state.speechPitch = parseFloat(v); Storage.set('speechPitch', state.speechPitch); render(); };
+
+// ── Init ──
+applyTheme();
+render();
