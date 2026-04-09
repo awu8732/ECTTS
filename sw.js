@@ -3,6 +3,7 @@ const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/src/app.js',
+  '/src/pinyin-dict.js',
   '/src/style.css',
   '/manifest.json',
   '/icons/icon-192.png',

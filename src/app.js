@@ -2,46 +2,7 @@
    语音键盘 VoiceKeys — Main Application
    ======================================== */
 
-// ── Pinyin Dictionary (demo subset) ──
-const PINYIN_MAP = {
-  ni: ["你","尼","泥","逆","匿"], hao: ["好","号","毫","豪","耗"],
-  wo: ["我","握","窝","沃","卧"], shi: ["是","十","时","事","世"],
-  de: ["的","得","地","德"], ma: ["吗","妈","马","骂","麻"],
-  ba: ["吧","八","把","爸","拔"], zhe: ["这","者","着","哲"],
-  ge: ["个","各","歌","哥","格"], ren: ["人","认","任","仁","忍"],
-  da: ["大","打","达","答","搭"], xiao: ["小","笑","校","效","消"],
-  zhong: ["中","种","重","钟","终"], guo: ["国","过","果","锅"],
-  you: ["有","又","右","油","游"], men: ["们","门","闷"],
-  bu: ["不","步","部","布","补"], le: ["了","乐","勒"],
-  zai: ["在","再","载","灾"], he: ["和","河","合","何","喝"],
-  ta: ["他","她","它","塔"], shang: ["上","尚","伤","商"],
-  xia: ["下","夏","吓","虾"], tian: ["天","田","甜","添"],
-  qi: ["气","七","起","期","齐"], lai: ["来","赖","莱"],
-  qu: ["去","取","趣","区"], dui: ["对","队","兑"],
-  xie: ["写","谢","些","鞋"], kan: ["看","刊","砍"],
-  shuo: ["说","硕"], ting: ["听","停","挺","厅"],
-  dong: ["东","动","懂","冬"], xi: ["西","习","喜","洗"],
-  bei: ["北","被","背","杯"], nan: ["南","难","男"],
-  jia: ["家","加","假","价"], yao: ["要","药","摇","咬"],
-  hui: ["会","回","灰","汇"], neng: ["能"],
-  xiang: ["想","向","像","象","香"], ai: ["爱","哎","矮"],
-  huan: ["欢","换","还","环"], ying: ["英","应","影","营"],
-  yu: ["语","雨","鱼","与"], wen: ["文","问","闻","温"],
-  pin: ["拼","品","贫"], yin: ["音","因","银","印"],
-  jian: ["见","键","间","建"], pan: ["盘","判","盼"],
-  dian: ["点","电","店","典"], hua: ["话","花","画","化"],
-  zhuan: ["转","专","赚","砖"], mei: ["没","美","每","梅"],
-  zuo: ["做","坐","左","作"], xue: ["学","雪","血"],
-  lao: ["老","劳","姥"], shi: ["是","十","时","事","世"],
-  chang: ["长","常","场","唱"], cheng: ["成","城","程","称"],
-  fang: ["方","放","房","防"], gong: ["工","公","功","共"],
-  ji: ["机","几","及","记","级"], li: ["里","力","立","利"],
-  ming: ["明","名","命","鸣"], qing: ["请","清","情","青"],
-  ri: ["日"], sheng: ["生","声","省","胜"],
-  si: ["四","思","死","似"], wang: ["王","网","往","望"],
-  xin: ["新","心","信","辛"], yi: ["一","已","以","意"],
-  yuan: ["元","原","远","园"], zhi: ["知","只","之","直"],
-};
+// ── PINYIN_MAP is loaded from /src/pinyin-dict.js ──
 
 const DEFAULT_PHRASES = [
   { label: "你好", tts: "你好" },
@@ -510,8 +471,8 @@ function renderSettings() {
         <div class="setting-group">
           <label>关于 About</label>
           <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-            <span style="font-weight:600">语音键盘 VoiceKeys v1.0</span>
-            <span style="font-size:13px;color:var(--text-secondary)">Accessible Chinese + English TTS keyboard. Works offline as a PWA.</span>
+            <span style="font-weight:600">语音键盘 VoiceKeys v1.1</span>
+            <span style="font-size:13px;color:var(--text-secondary)">Accessible Chinese + English TTS keyboard. Full pinyin dictionary with 407 syllables and 3,200+ characters. Works offline as a PWA.</span>
           </div>
         </div>
       </div>
