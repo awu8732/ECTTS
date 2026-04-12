@@ -430,6 +430,7 @@ let currentStroke = [];     // Current in-progress stroke
 let hwRecognizeTimer = null;
 let hwCandidates = [];      // Recognition results
 let hwRecognizing = false;  // Loading state
+let hwAutoCommitted = '';   // The auto-committed text (for substitution)
 
 const HW_RECOGNIZE_DELAY = 900; // ms after last stroke to auto-recognize
 
@@ -451,6 +452,12 @@ function startDraw(e) {
   currentStroke = [lastPos];
   // Clear the auto-recognize timer on new stroke
   if (hwRecognizeTimer) { clearTimeout(hwRecognizeTimer); hwRecognizeTimer = null; }
+  // Confirm previous auto-committed character (user is moving on)
+  if (hwAutoCommitted) {
+    hwAutoCommitted = '';
+    hwCandidates = [];
+    renderHwCandidates();
+  }
   // Hide hint once user starts drawing
   const hint = document.querySelector('.canvas-hint');
   if (hint) hint.style.display = 'none';
@@ -500,6 +507,7 @@ function clearCanvas() {
   currentStroke = [];
   hwCandidates = [];
   hwRecognizing = false;
+  hwAutoCommitted = '';
   if (hwRecognizeTimer) { clearTimeout(hwRecognizeTimer); hwRecognizeTimer = null; }
   renderHwCandidates();
   // Restore hint
@@ -591,7 +599,25 @@ async function recognizeHandwriting() {
 
       hwCandidates = candidates.slice(0, 10);
       hwRecognizing = false;
+
+      // Auto-commit: append top candidate to text immediately
+      if (hwCandidates.length > 0) {
+        hwAutoCommitted = hwCandidates[0];
+        state.text += hwAutoCommitted;
+        // Clear canvas for next character input
+        const cv = document.getElementById('hw-canvas');
+        if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+        hwStrokes = [];
+        const hint = document.querySelector('.canvas-hint');
+        if (hint) hint.style.display = '';
+        // Show alternatives (skip the first since it's already committed)
+        hwCandidates = hwCandidates.slice(1);
+      }
+
       renderHwCandidates();
+      // Update textarea without full re-render (avoids wiping canvas state)
+      const ta = document.getElementById('main-textarea');
+      if (ta) ta.value = state.text;
       return;
     } catch (err) {
       console.warn('Handwriting recognition failed:', err);
@@ -601,14 +627,32 @@ async function recognizeHandwriting() {
   // Fallback: no API available
   hwCandidates = [];
   hwRecognizing = false;
+  hwAutoCommitted = '';
   renderHwCandidates();
 }
 
 function selectHwCandidate(c) {
-  state.text += c;
-  // Clear canvas for next character
-  clearCanvas();
-  render();
+  // Substitute: remove the auto-committed text from the end and replace with selection
+  if (hwAutoCommitted && state.text.endsWith(hwAutoCommitted)) {
+    state.text = state.text.slice(0, -hwAutoCommitted.length) + c;
+  } else {
+    // Fallback: just append (shouldn't normally happen)
+    state.text += c;
+  }
+  hwAutoCommitted = c;
+  // Clear alternatives after substitution
+  hwCandidates = [];
+  renderHwCandidates();
+  // Update textarea
+  const ta = document.getElementById('main-textarea');
+  if (ta) ta.value = state.text;
+}
+
+// Confirm the current auto-committed character (clears alternatives)
+function hwConfirm() {
+  hwAutoCommitted = '';
+  hwCandidates = [];
+  renderHwCandidates();
 }
 
 function renderHwCandidates() {
@@ -620,14 +664,24 @@ function renderHwCandidates() {
     return;
   }
 
-  if (hwCandidates.length === 0) {
-    bar.innerHTML = '<span class="candidate-hint">手写后自动识别</span>';
+  // Show auto-committed character with alternatives for substitution
+  if (hwAutoCommitted && hwCandidates.length > 0) {
+    bar.innerHTML =
+      `<span class="hw-committed" title="已输入">${escapeHtml(hwAutoCommitted)}</span>` +
+      `<span class="hw-arrow">→</span>` +
+      hwCandidates.map(c =>
+        `<button class="candidate-btn" onclick="selectHwCandidate('${escapeAttr(c)}')">${escapeHtml(c)}</button>`
+      ).join('');
     return;
   }
 
-  bar.innerHTML = hwCandidates.map((c, i) =>
-    `<button class="candidate-btn ${i === 0 ? 'primary' : ''}" onclick="selectHwCandidate('${escapeAttr(c)}')">${escapeHtml(c)}</button>`
-  ).join('');
+  if (hwAutoCommitted) {
+    // Committed with no alternatives
+    bar.innerHTML = `<span class="hw-committed">${escapeHtml(hwAutoCommitted)} ✓</span>`;
+    return;
+  }
+
+  bar.innerHTML = '<span class="candidate-hint">手写后自动识别</span>';
 }
 
 function hwUndo() {
@@ -654,6 +708,7 @@ function hwUndo() {
   }
   if (hwStrokes.length === 0) {
     hwCandidates = [];
+    hwAutoCommitted = '';
     renderHwCandidates();
     const hint = document.querySelector('.canvas-hint');
     if (hint) hint.style.display = '';
@@ -1034,6 +1089,7 @@ window.clearCanvas = clearCanvas;
 window.selectHwCandidate = selectHwCandidate;
 window.hwUndo = hwUndo;
 window.hwRecognizeNow = hwRecognizeNow;
+window.hwConfirm = hwConfirm;
 
 // Settings handlers: use renderSettingsOnly() instead of full render()
 window.setTheme = (t) => { state.theme = t; Storage.set('theme', t); applyTheme(); renderSettingsOnly(); };
