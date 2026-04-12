@@ -585,19 +585,38 @@ body {
 }
 .canvas-wrap canvas {
   width: 100%;
-  height: 180px;
+  height: 200px;
   display: block;
   touch-action: none;
+  cursor: crosshair;
 }
 .canvas-grid {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   pointer-events: none;
-  opacity: 0.08;
+  opacity: 0.06;
   background-image:
     linear-gradient(var(--text-primary) 1px, transparent 1px),
     linear-gradient(90deg, var(--text-primary) 1px, transparent 1px);
-  background-size: 45px 45px;
+  background-size: 50px 50px;
+}
+.canvas-grid::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--text-primary);
+  opacity: 0.15;
+}
+.canvas-grid::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--text-primary);
+  opacity: 0.15;
 }
 .canvas-hint {
   position: absolute;
@@ -625,12 +644,26 @@ body {
   cursor: pointer;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  transition: background 0.15s;
+}
+.canvas-btn:active {
+  background: rgba(128,128,128,0.3);
 }
 .handwrite-note {
   font-size: 11px;
   color: var(--text-tertiary);
   text-align: center;
   margin-top: 6px;
+}
+.hw-recognizing {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  animation: hw-pulse 1s ease-in-out infinite;
+}
+@keyframes hw-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* ========== SETTINGS PANEL ========== */

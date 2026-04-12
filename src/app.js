@@ -15,9 +15,8 @@ const DEFAULT_PHRASES = [
   { label: "Excuse me", tts: "Excuse me" },
   { label: "Yes", tts: "Yes" },
   { label: "No", tts: "No" },
-  { label: "我需要帮助", tts: "我需要帮助" },
   { label: "请再说一次", tts: "请再说一次" },
-  { label: "I need help", tts: "I need help" },
+  { label: "Please help me", tts: "Please help me" },
 ];
 
 const PINYIN_ROWS = [
@@ -274,6 +273,60 @@ function stopSpeaking() {
   render();
 }
 
+// ── Voice Preview (plays a short sample when switching voices) ──
+async function previewVoice(voiceName, lang) {
+  stopSpeaking();
+  const sampleText = lang === 'zh' ? '你好' : 'Hello';
+  const langCode = voiceName
+    ? voiceName.split('-').slice(0, 2).join('-')
+    : (lang === 'zh' ? 'cmn-CN' : 'en-US');
+
+  if (state.gcloudAvailable && voiceName) {
+    try {
+      const body = {
+        input: { text: sampleText },
+        voice: { languageCode: langCode, name: voiceName },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          speakingRate: state.speechRate,
+          pitch: (state.speechPitch - 1.0) * 4,
+        },
+      };
+      const res = await fetch('/api/tts/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Preview TTS returned ${res.status}`);
+      const data = await res.json();
+      if (!data.audioContent) throw new Error('No audioContent');
+      const audioBytes = atob(data.audioContent);
+      const audioArray = new Uint8Array(audioBytes.length);
+      for (let i = 0; i < audioBytes.length; i++) {
+        audioArray[i] = audioBytes.charCodeAt(i);
+      }
+      const blob = new Blob([audioArray], { type: 'audio/mpeg' });
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      currentAudio = audio;
+      audio.onended = () => { currentAudio = null; URL.revokeObjectURL(audioUrl); };
+      audio.onerror = () => { currentAudio = null; URL.revokeObjectURL(audioUrl); };
+      audio.play();
+      return;
+    } catch (err) {
+      console.warn('Voice preview via Google Cloud failed:', err);
+    }
+  }
+
+  // Fallback: Web Speech API preview
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(sampleText);
+  utter.lang = lang === 'zh' ? 'zh-CN' : 'en-US';
+  utter.rate = state.speechRate;
+  utter.pitch = state.speechPitch;
+  window.speechSynthesis.speak(utter);
+}
+
 function addToHistory(text) {
   const trimmed = text.trim();
   if (!trimmed) return;
@@ -372,6 +425,13 @@ function selectCandidate(c) {
 // ── Handwriting canvas ──
 let isDrawing = false;
 let lastPos = { x: 0, y: 0 };
+let hwStrokes = [];         // Array of strokes; each stroke = [{x,y}, ...]
+let currentStroke = [];     // Current in-progress stroke
+let hwRecognizeTimer = null;
+let hwCandidates = [];      // Recognition results
+let hwRecognizing = false;  // Loading state
+
+const HW_RECOGNIZE_DELAY = 900; // ms after last stroke to auto-recognize
 
 function getCanvasPos(e) {
   const canvas = document.getElementById('hw-canvas');
@@ -388,6 +448,12 @@ function startDraw(e) {
   e.preventDefault();
   isDrawing = true;
   lastPos = getCanvasPos(e);
+  currentStroke = [lastPos];
+  // Clear the auto-recognize timer on new stroke
+  if (hwRecognizeTimer) { clearTimeout(hwRecognizeTimer); hwRecognizeTimer = null; }
+  // Hide hint once user starts drawing
+  const hint = document.querySelector('.canvas-hint');
+  if (hint) hint.style.display = 'none';
 }
 
 function draw(e) {
@@ -397,25 +463,211 @@ function draw(e) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const pos = getCanvasPos(e);
+  currentStroke.push(pos);
+
   ctx.beginPath();
   ctx.moveTo(lastPos.x, lastPos.y);
   ctx.lineTo(pos.x, pos.y);
   const cs = getComputedStyle(document.documentElement);
   ctx.strokeStyle = cs.getPropertyValue('--text-primary').trim() || '#1C1C1E';
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 4;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.stroke();
   lastPos = pos;
 }
 
-function endDraw() { isDrawing = false; }
+function endDraw() {
+  if (!isDrawing) return;
+  isDrawing = false;
+  if (currentStroke.length > 1) {
+    hwStrokes.push([...currentStroke]);
+  }
+  currentStroke = [];
+  // Schedule auto-recognition after a pause
+  if (hwStrokes.length > 0) {
+    if (hwRecognizeTimer) clearTimeout(hwRecognizeTimer);
+    hwRecognizeTimer = setTimeout(() => recognizeHandwriting(), HW_RECOGNIZE_DELAY);
+  }
+}
 
 function clearCanvas() {
   const canvas = document.getElementById('hw-canvas');
   if (canvas) {
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   }
+  hwStrokes = [];
+  currentStroke = [];
+  hwCandidates = [];
+  hwRecognizing = false;
+  if (hwRecognizeTimer) { clearTimeout(hwRecognizeTimer); hwRecognizeTimer = null; }
+  renderHwCandidates();
+  // Restore hint
+  const hint = document.querySelector('.canvas-hint');
+  if (hint) hint.style.display = '';
+}
+
+async function recognizeHandwriting() {
+  if (hwStrokes.length === 0) return;
+
+  const canvas = document.getElementById('hw-canvas');
+  if (!canvas) return;
+
+  hwRecognizing = true;
+  renderHwCandidates();
+
+  if (state.gcloudAvailable) {
+    try {
+      // Send the canvas image as base64 to Google Vision API
+      const dataUrl = canvas.toDataURL('image/png');
+      const base64 = dataUrl.split(',')[1];
+
+      const body = {
+        requests: [{
+          image: { content: base64 },
+          features: [{ type: 'DOCUMENT_TEXT_DETECTION', maxResults: 10 }],
+          imageContext: {
+            languageHints: state.ttsLang === 'zh' ? ['zh-Hans', 'zh-Hant', 'en'] : ['en', 'zh-Hans'],
+          },
+        }],
+      };
+
+      const res = await fetch('/api/handwriting/recognize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) throw new Error(`Recognition API returned ${res.status}`);
+      const data = await res.json();
+
+      // Extract recognized text from Vision API response
+      const annotation = data.responses?.[0];
+      if (annotation?.error) {
+        throw new Error(annotation.error.message || 'Vision API error');
+      }
+
+      const fullText = annotation?.fullTextAnnotation?.text?.trim() || '';
+      const symbols = [];
+
+      // Collect individual symbols/characters from the response
+      const pages = annotation?.fullTextAnnotation?.pages || [];
+      for (const page of pages) {
+        for (const block of (page.blocks || [])) {
+          for (const paragraph of (block.paragraphs || [])) {
+            for (const word of (paragraph.words || [])) {
+              for (const symbol of (word.symbols || [])) {
+                if (symbol.text && symbol.text.trim()) {
+                  symbols.push(symbol.text);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Build candidates: individual characters + the full text if multi-char
+      const seen = new Set();
+      const candidates = [];
+      for (const s of symbols) {
+        if (!seen.has(s)) {
+          seen.add(s);
+          candidates.push(s);
+        }
+      }
+      if (fullText.length > 1 && !seen.has(fullText)) {
+        candidates.unshift(fullText);
+      }
+
+      // Also add from textAnnotations (often gives alternative readings)
+      const textAnnotations = annotation?.textAnnotations || [];
+      for (let i = 1; i < textAnnotations.length && candidates.length < 12; i++) {
+        const t = textAnnotations[i]?.description?.trim();
+        if (t && !seen.has(t)) {
+          seen.add(t);
+          candidates.push(t);
+        }
+      }
+
+      hwCandidates = candidates.slice(0, 10);
+      hwRecognizing = false;
+      renderHwCandidates();
+      return;
+    } catch (err) {
+      console.warn('Handwriting recognition failed:', err);
+    }
+  }
+
+  // Fallback: no API available
+  hwCandidates = [];
+  hwRecognizing = false;
+  renderHwCandidates();
+}
+
+function selectHwCandidate(c) {
+  state.text += c;
+  // Clear canvas for next character
+  clearCanvas();
+  render();
+}
+
+function renderHwCandidates() {
+  const bar = document.getElementById('hw-candidate-bar');
+  if (!bar) return;
+
+  if (hwRecognizing) {
+    bar.innerHTML = '<span class="hw-recognizing">识别中…</span>';
+    return;
+  }
+
+  if (hwCandidates.length === 0) {
+    bar.innerHTML = '<span class="candidate-hint">手写后自动识别</span>';
+    return;
+  }
+
+  bar.innerHTML = hwCandidates.map((c, i) =>
+    `<button class="candidate-btn ${i === 0 ? 'primary' : ''}" onclick="selectHwCandidate('${escapeAttr(c)}')">${escapeHtml(c)}</button>`
+  ).join('');
+}
+
+function hwUndo() {
+  if (hwStrokes.length === 0) return;
+  hwStrokes.pop();
+  // Redraw remaining strokes
+  const canvas = document.getElementById('hw-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const cs = getComputedStyle(document.documentElement);
+  ctx.strokeStyle = cs.getPropertyValue('--text-primary').trim() || '#1C1C1E';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const stroke of hwStrokes) {
+    if (stroke.length < 2) continue;
+    ctx.beginPath();
+    ctx.moveTo(stroke[0].x, stroke[0].y);
+    for (let i = 1; i < stroke.length; i++) {
+      ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+  if (hwStrokes.length === 0) {
+    hwCandidates = [];
+    renderHwCandidates();
+    const hint = document.querySelector('.canvas-hint');
+    if (hint) hint.style.display = '';
+  } else {
+    // Re-trigger recognition after undo
+    if (hwRecognizeTimer) clearTimeout(hwRecognizeTimer);
+    hwRecognizeTimer = setTimeout(() => recognizeHandwriting(), HW_RECOGNIZE_DELAY);
+  }
+}
+
+function hwRecognizeNow() {
+  if (hwStrokes.length === 0) return;
+  if (hwRecognizeTimer) { clearTimeout(hwRecognizeTimer); hwRecognizeTimer = null; }
+  recognizeHandwriting();
 }
 
 // ── Time formatting ──
@@ -674,16 +926,21 @@ function render() {
       ` : ''}
 
       ${state.mode === 'handwrite' ? `
+        <div class="candidate-bar" id="hw-candidate-bar">
+          <span class="candidate-hint">手写后自动识别</span>
+        </div>
         <div class="handwrite-area">
           <div class="canvas-wrap">
-            <canvas id="hw-canvas" width="460" height="180"></canvas>
+            <canvas id="hw-canvas" width="600" height="220"></canvas>
             <div class="canvas-grid"></div>
             <div class="canvas-hint">在此区域手写输入</div>
             <div class="canvas-actions">
+              <button class="canvas-btn" onclick="hwUndo()">撤销</button>
+              <button class="canvas-btn" onclick="hwRecognizeNow()">识别</button>
               <button class="canvas-btn" onclick="clearCanvas()">清除</button>
             </div>
           </div>
-          <p class="handwrite-note">手写识别为演示模式; 实际应用中连接 OCR 引擎</p>
+          ${!state.gcloudAvailable ? '<p class="handwrite-note">⚠ 需要配置 Google API Key 启用手写识别</p>' : ''}
         </div>
       ` : `
         <div class="key-rows">
@@ -709,7 +966,7 @@ function render() {
     ${state.showSettings ? renderSettings() : ''}
   `;
 
-  // Re-attach canvas events
+  // Re-attach canvas events and restore state
   if (state.mode === 'handwrite') {
     const canvas = document.getElementById('hw-canvas');
     if (canvas) {
@@ -720,6 +977,31 @@ function render() {
       canvas.addEventListener('touchstart', startDraw, { passive: false });
       canvas.addEventListener('touchmove', draw, { passive: false });
       canvas.addEventListener('touchend', endDraw);
+
+      // Redraw existing strokes (render() wipes innerHTML)
+      if (hwStrokes.length > 0) {
+        const ctx = canvas.getContext('2d');
+        const cs = getComputedStyle(document.documentElement);
+        ctx.strokeStyle = cs.getPropertyValue('--text-primary').trim() || '#1C1C1E';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const stroke of hwStrokes) {
+          if (stroke.length < 2) continue;
+          ctx.beginPath();
+          ctx.moveTo(stroke[0].x, stroke[0].y);
+          for (let i = 1; i < stroke.length; i++) {
+            ctx.lineTo(stroke[i].x, stroke[i].y);
+          }
+          ctx.stroke();
+        }
+        // Hide hint if strokes exist
+        const hint = document.querySelector('.canvas-hint');
+        if (hint) hint.style.display = 'none';
+      }
+
+      // Restore candidate bar state
+      renderHwCandidates();
     }
   }
 
@@ -749,14 +1031,18 @@ window.saveCurrentText = () => { savePhrase(state.text); };
 window.removeSavedPhrase = removeSavedPhrase;
 window.clearHistory = clearHistory;
 window.clearCanvas = clearCanvas;
+window.selectHwCandidate = selectHwCandidate;
+window.hwUndo = hwUndo;
+window.hwRecognizeNow = hwRecognizeNow;
 
 // Settings handlers: use renderSettingsOnly() instead of full render()
 window.setTheme = (t) => { state.theme = t; Storage.set('theme', t); applyTheme(); renderSettingsOnly(); };
 window.setSpeechRate = (v) => { state.speechRate = parseFloat(v); Storage.set('speechRate', state.speechRate); renderSettingsOnly(); };
 window.setSpeechPitch = (v) => { state.speechPitch = parseFloat(v); Storage.set('speechPitch', state.speechPitch); renderSettingsOnly(); };
-window.setVoiceZh = (v) => { state.selectedVoiceZh = v; Storage.set('voiceZh', v); renderSettingsOnly(); };
-window.setVoiceEn = (v) => { state.selectedVoiceEn = v; Storage.set('voiceEn', v); renderSettingsOnly(); };
+window.setVoiceZh = (v) => { state.selectedVoiceZh = v; Storage.set('voiceZh', v); previewVoice(v, 'zh'); renderSettingsOnly(); };
+window.setVoiceEn = (v) => { state.selectedVoiceEn = v; Storage.set('voiceEn', v); previewVoice(v, 'en'); renderSettingsOnly(); };
 window.refreshVoices = () => { state.voicesLoaded = false; loadVoices(); };
+window.previewVoice = previewVoice;
 
 // ── Init ──
 applyTheme();

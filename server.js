@@ -120,6 +120,45 @@ const server = http.createServer(async (req, res) => {
     return proxyToGoogle(googlePath, 'GET', null, res);
   }
 
+  // ── API: handwriting recognition (Google Cloud Vision)
+  if (pathname === '/api/handwriting/recognize' && req.method === 'POST') {
+    if (!GOOGLE_TTS_API_KEY) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'API key not configured' }));
+    }
+    const body = await readBody(req);
+    // Proxy to Google Cloud Vision API (handwriting OCR via INK_RECOGNITION
+    // isn't available as a REST endpoint, so we use the Vision API with
+    // DOCUMENT_TEXT_DETECTION on a rendered canvas image)
+    const url = `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_TTS_API_KEY}`;
+    const parsed = new URL(url);
+    const options = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    };
+    const greq = https.request(options, (gres) => {
+      const chunks = [];
+      gres.on('data', c => chunks.push(c));
+      gres.on('end', () => {
+        const data = Buffer.concat(chunks);
+        res.writeHead(gres.statusCode, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(data);
+      });
+    });
+    greq.on('error', (err) => {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
+    greq.write(body);
+    greq.end();
+    return;
+  }
+
   // ── Static file serving ──────────────────────────────────────
   let filePath = pathname === '/' ? '/index.html' : pathname;
   filePath = path.join(__dirname, filePath);
