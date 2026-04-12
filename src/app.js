@@ -1,5 +1,6 @@
 /* ========================================
    语音键盘 VoiceKeys — Main Application
+   (Google Cloud TTS + Web Speech fallback)
    ======================================== */
 
 // ── PINYIN_MAP is loaded from /src/pinyin-dict.js ──
@@ -57,7 +58,17 @@ const state = {
   history: Storage.get('history', []),
   savedPhrases: Storage.get('savedPhrases', []),
   activeKey: null,
+  // Google Cloud TTS state
+  gcloudAvailable: false,
+  gcloudVoices: { zh: [], en: [] },
+  selectedVoiceZh: Storage.get('voiceZh', ''),
+  selectedVoiceEn: Storage.get('voiceEn', ''),
+  voicesLoaded: false,
+  voicesLoading: false,
 };
+
+// Currently playing audio element (for Google Cloud TTS)
+let currentAudio = null;
 
 // ── SVG Icons ──
 const icons = {
@@ -73,6 +84,8 @@ const icons = {
   playSmall: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
   trash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>`,
   clock: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  cloud: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg>`,
+  refresh: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>`,
 };
 
 // ── Theme ──
@@ -90,9 +103,153 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   if (state.theme === 'auto') applyTheme();
 });
 
-// ── TTS ──
-function speak(content) {
+// ── Google Cloud TTS ──────────────────────────────────────────
+
+async function checkGcloudStatus() {
+  try {
+    const res = await fetch('/api/tts/status');
+    const data = await res.json();
+    state.gcloudAvailable = data.configured;
+    if (state.gcloudAvailable && !state.voicesLoaded) {
+      loadVoices();
+    }
+  } catch {
+    state.gcloudAvailable = false;
+  }
+}
+
+async function loadVoices() {
+  if (state.voicesLoading) return;
+  state.voicesLoading = true;
+  renderSettingsOnly();
+  try {
+    const [zhRes, enRes] = await Promise.all([
+      fetch('/api/tts/voices?lang=zh'),
+      fetch('/api/tts/voices?lang=en'),
+    ]);
+    const zhData = await zhRes.json();
+    const enData = await enRes.json();
+
+    // Filter and sort voices; prefer Wavenet/Neural2/Journey over Standard
+    const tierOrder = { 'Journey': 0, 'Neural2': 1, 'Wavenet': 2, 'Studio': 3, 'Chirp': 4, 'Standard': 5 };
+    function getTier(name) {
+      for (const t of Object.keys(tierOrder)) {
+        if (name.includes(t)) return tierOrder[t];
+      }
+      return 9;
+    }
+    function sortVoices(voices) {
+      return voices
+        .map(v => ({ name: v.name, gender: v.ssmlGender, langs: v.languageCodes }))
+        .sort((a, b) => getTier(a.name) - getTier(b.name) || a.name.localeCompare(b.name));
+    }
+
+    state.gcloudVoices.zh = sortVoices(zhData.voices || []);
+    state.gcloudVoices.en = sortVoices((enData.voices || []).filter(v =>
+      v.languageCodes.some(lc => lc.startsWith('en-'))
+    ));
+
+    // Set defaults if not already chosen
+    if (!state.selectedVoiceZh && state.gcloudVoices.zh.length > 0) {
+      // Try to find a good default: cmn-CN-Wavenet-A or first available
+      const preferred = state.gcloudVoices.zh.find(v => v.name.includes('Wavenet'));
+      state.selectedVoiceZh = preferred ? preferred.name : state.gcloudVoices.zh[0].name;
+      Storage.set('voiceZh', state.selectedVoiceZh);
+    }
+    if (!state.selectedVoiceEn && state.gcloudVoices.en.length > 0) {
+      const preferred = state.gcloudVoices.en.find(v => v.name.includes('Wavenet') && v.name.includes('en-US'));
+      state.selectedVoiceEn = preferred ? preferred.name : state.gcloudVoices.en[0].name;
+      Storage.set('voiceEn', state.selectedVoiceEn);
+    }
+
+    state.voicesLoaded = true;
+  } catch (err) {
+    console.warn('Failed to load Google Cloud voices:', err);
+  }
+  state.voicesLoading = false;
+  renderSettingsOnly();
+}
+
+async function speakWithGcloud(content) {
+  const lang = state.ttsLang;
+  const voiceName = lang === 'zh' ? state.selectedVoiceZh : state.selectedVoiceEn;
+  // Derive the languageCode from the voice name (e.g. "cmn-CN-Wavenet-A" -> "cmn-CN")
+  const langCode = voiceName ? voiceName.split('-').slice(0, 2).join('-') : (lang === 'zh' ? 'cmn-CN' : 'en-US');
+
+  const body = {
+    input: { text: content },
+    voice: {
+      languageCode: langCode,
+      ...(voiceName ? { name: voiceName } : {}),
+    },
+    audioConfig: {
+      audioEncoding: 'MP3',
+      speakingRate: state.speechRate,
+      pitch: (state.speechPitch - 1.0) * 4, // Google uses semitones: -20 to 20; map 0.5-2.0 -> -2 to 4
+    },
+  };
+
+  const res = await fetch('/api/tts/synthesize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Google TTS returned ${res.status}`);
+  }
+
+  const data = await res.json();
+  if (!data.audioContent) {
+    throw new Error('No audioContent in response');
+  }
+
+  // Decode base64 and play
+  const audioBytes = atob(data.audioContent);
+  const audioArray = new Uint8Array(audioBytes.length);
+  for (let i = 0; i < audioBytes.length; i++) {
+    audioArray[i] = audioBytes.charCodeAt(i);
+  }
+  const blob = new Blob([audioArray], { type: 'audio/mpeg' });
+  const audioUrl = URL.createObjectURL(blob);
+
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(audioUrl);
+    currentAudio = audio;
+    audio.onended = () => { currentAudio = null; URL.revokeObjectURL(audioUrl); resolve(); };
+    audio.onerror = (e) => { currentAudio = null; URL.revokeObjectURL(audioUrl); reject(e); };
+    audio.play();
+  });
+}
+
+// ── TTS (unified: tries Google Cloud first, falls back to Web Speech) ──
+
+async function speak(content) {
   if (!content || !content.trim()) return;
+
+  // Stop anything currently playing
+  stopSpeaking();
+
+  state.isSpeaking = true;
+  render();
+  addToHistory(content);
+
+  if (state.gcloudAvailable) {
+    try {
+      await speakWithGcloud(content);
+      state.isSpeaking = false;
+      render();
+      return;
+    } catch (err) {
+      console.warn('Google Cloud TTS failed, falling back to Web Speech:', err);
+    }
+  }
+
+  // Fallback: Web Speech API
+  speakWithWebSpeech(content);
+}
+
+function speakWithWebSpeech(content) {
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(content);
   utter.lang = state.ttsLang === 'zh' ? 'zh-CN' : 'en-US';
@@ -102,12 +259,16 @@ function speak(content) {
   utter.onend = () => { state.isSpeaking = false; render(); };
   utter.onerror = () => { state.isSpeaking = false; render(); };
   window.speechSynthesis.speak(utter);
-
-  // Add to history
-  addToHistory(content);
 }
 
 function stopSpeaking() {
+  // Stop Google Cloud audio
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    currentAudio = null;
+  }
+  // Stop Web Speech
   window.speechSynthesis.cancel();
   state.isSpeaking = false;
   render();
@@ -116,7 +277,6 @@ function stopSpeaking() {
 function addToHistory(text) {
   const trimmed = text.trim();
   if (!trimmed) return;
-  // Avoid duplicating the most recent entry
   if (state.history.length > 0 && state.history[0].text === trimmed) return;
   state.history.unshift({ text: trimmed, time: Date.now() });
   if (state.history.length > 50) state.history = state.history.slice(0, 50);
@@ -267,6 +427,146 @@ function timeAgo(ts) {
   return Math.floor(diff / 86400000) + '天前';
 }
 
+// ── Escape helpers ──
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+function escapeAttr(s) {
+  return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ── Voice display helper ──
+function voiceDisplayName(name) {
+  // e.g. "cmn-CN-Wavenet-A" -> "Wavenet-A (cmn-CN)"
+  const parts = name.split('-');
+  if (parts.length >= 4) {
+    const lang = parts.slice(0, 2).join('-');
+    const type = parts.slice(2).join('-');
+    return `${type} (${lang})`;
+  }
+  return name;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── Settings-only render (no full DOM rebuild) ──
+// This prevents the startup animation from re-triggering when
+// the user adjusts sliders, dropdowns, or buttons in settings.
+// ═══════════════════════════════════════════════════════════════
+
+function renderSettingsOnly() {
+  const panel = document.getElementById('settings-body-inner');
+  if (!panel) return; // settings not open; skip
+  panel.innerHTML = settingsBodyHTML();
+}
+
+function settingsBodyHTML() {
+  const zhVoices = state.gcloudVoices.zh;
+  const enVoices = state.gcloudVoices.en;
+  const gcloudBadge = state.gcloudAvailable
+    ? `<span style="color:var(--accent-green);font-size:12px;font-weight:600">${icons.cloud} Connected</span>`
+    : `<span style="color:var(--text-tertiary);font-size:12px">Not configured</span>`;
+
+  return `
+    <div class="setting-group">
+      <label>主题 Theme</label>
+      <div class="theme-options">
+        <button class="theme-btn ${state.theme === 'auto' ? 'active' : ''}" onclick="setTheme('auto')">自动 Auto</button>
+        <button class="theme-btn ${state.theme === '' ? 'active' : ''}" onclick="setTheme('')">浅色 Light</button>
+        <button class="theme-btn ${state.theme === 'dark' ? 'active' : ''}" onclick="setTheme('dark')">深色 Dark</button>
+        <button class="theme-btn ${state.theme === 'high-contrast' ? 'active' : ''}" onclick="setTheme('high-contrast')">高对比</button>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label>TTS 引擎 Engine ${gcloudBadge}</label>
+      ${state.gcloudAvailable ? `
+        <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:14px">中文语音 Chinese Voice</span>
+            ${state.voicesLoading ? '<span style="font-size:12px;color:var(--text-tertiary)">Loading…</span>' : ''}
+          </div>
+          <select class="voice-select" onchange="setVoiceZh(this.value)" ${zhVoices.length === 0 ? 'disabled' : ''}>
+            ${zhVoices.length === 0
+              ? '<option>Loading voices…</option>'
+              : zhVoices.map(v =>
+                  `<option value="${v.name}" ${v.name === state.selectedVoiceZh ? 'selected' : ''}>${voiceDisplayName(v.name)} · ${v.gender === 'MALE' ? '♂' : v.gender === 'FEMALE' ? '♀' : '◎'}</option>`
+                ).join('')
+            }
+          </select>
+        </div>
+        <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px;margin-top:4px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:14px">英文语音 English Voice</span>
+          </div>
+          <select class="voice-select" onchange="setVoiceEn(this.value)" ${enVoices.length === 0 ? 'disabled' : ''}>
+            ${enVoices.length === 0
+              ? '<option>Loading voices…</option>'
+              : enVoices.map(v =>
+                  `<option value="${v.name}" ${v.name === state.selectedVoiceEn ? 'selected' : ''}>${voiceDisplayName(v.name)} · ${v.gender === 'MALE' ? '♂' : v.gender === 'FEMALE' ? '♀' : '◎'}</option>`
+                ).join('')
+            }
+          </select>
+        </div>
+        <div style="margin-top:6px;text-align:right">
+          <button class="btn-clear" onclick="refreshVoices()" style="display:inline-flex">${icons.refresh} Refresh voices</button>
+        </div>
+      ` : `
+        <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <span style="font-size:13px;color:var(--text-secondary)">
+            Google Cloud TTS is not configured. Using browser TTS as fallback.<br>
+            Set <code>GOOGLE_TTS_API_KEY</code> env var and restart the server.
+          </span>
+        </div>
+      `}
+    </div>
+
+    <div class="setting-group">
+      <label>语速 Speech Rate</label>
+      <div class="setting-row">
+        <span>慢 ← → 快</span>
+        <div class="slider-wrap">
+          <input type="range" min="0.3" max="2" step="0.1" value="${state.speechRate}" oninput="setSpeechRate(this.value)">
+          <span class="slider-value">${state.speechRate.toFixed(1)}</span>
+        </div>
+      </div>
+    </div>
+    <div class="setting-group">
+      <label>音调 Pitch</label>
+      <div class="setting-row">
+        <span>低 ← → 高</span>
+        <div class="slider-wrap">
+          <input type="range" min="0.5" max="2" step="0.1" value="${state.speechPitch}" oninput="setSpeechPitch(this.value)">
+          <span class="slider-value">${state.speechPitch.toFixed(1)}</span>
+        </div>
+      </div>
+    </div>
+    <div class="setting-group">
+      <label>关于 About</label>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <span style="font-weight:600">语音键盘 VoiceKeys v2.0</span>
+        <span style="font-size:13px;color:var(--text-secondary)">Accessible Chinese + English TTS keyboard with Google Cloud TTS integration. Full pinyin dictionary with 407 syllables and 3,200+ characters. Falls back to browser TTS when offline or unconfigured.</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderSettings() {
+  return `
+    <div class="settings-overlay" onclick="toggleSettings()"></div>
+    <div class="settings-panel" onclick="event.stopPropagation()">
+      <div class="settings-header">
+        <h2>设置 Settings</h2>
+        <button class="settings-close" onclick="toggleSettings()">${icons.close}</button>
+      </div>
+      <div class="settings-body" id="settings-body-inner">
+        ${settingsBodyHTML()}
+      </div>
+    </div>
+  `;
+}
+
 // ── Render ──
 function render() {
   const app = document.getElementById('app');
@@ -309,7 +609,7 @@ function render() {
           <div class="speak-bars">
             ${[0,1,2,3,4].map(i => `<div class="speak-bar" style="height:${8+Math.random()*12}px;animation-delay:${i*0.1}s"></div>`).join('')}
           </div>
-          <span>正在朗读…</span>
+          <span>${state.gcloudAvailable ? '☁ Google Cloud TTS …' : '正在朗读…'}</span>
         </div>
       ` : ''}
 
@@ -430,66 +730,6 @@ function render() {
   }
 }
 
-function renderSettings() {
-  return `
-    <div class="settings-overlay" onclick="toggleSettings()"></div>
-    <div class="settings-panel" onclick="event.stopPropagation()">
-      <div class="settings-header">
-        <h2>设置 Settings</h2>
-        <button class="settings-close" onclick="toggleSettings()">${icons.close}</button>
-      </div>
-      <div class="settings-body">
-        <div class="setting-group">
-          <label>主题 Theme</label>
-          <div class="theme-options">
-            <button class="theme-btn ${state.theme === 'auto' ? 'active' : ''}" onclick="setTheme('auto')">自动 Auto</button>
-            <button class="theme-btn ${state.theme === '' ? 'active' : ''}" onclick="setTheme('')">浅色 Light</button>
-            <button class="theme-btn ${state.theme === 'dark' ? 'active' : ''}" onclick="setTheme('dark')">深色 Dark</button>
-            <button class="theme-btn ${state.theme === 'high-contrast' ? 'active' : ''}" onclick="setTheme('high-contrast')">高对比</button>
-          </div>
-        </div>
-        <div class="setting-group">
-          <label>语速 Speech Rate</label>
-          <div class="setting-row">
-            <span>慢 ← → 快</span>
-            <div class="slider-wrap">
-              <input type="range" min="0.3" max="2" step="0.1" value="${state.speechRate}" oninput="setSpeechRate(this.value)">
-              <span class="slider-value">${state.speechRate.toFixed(1)}</span>
-            </div>
-          </div>
-        </div>
-        <div class="setting-group">
-          <label>音调 Pitch</label>
-          <div class="setting-row">
-            <span>低 ← → 高</span>
-            <div class="slider-wrap">
-              <input type="range" min="0.5" max="2" step="0.1" value="${state.speechPitch}" oninput="setSpeechPitch(this.value)">
-              <span class="slider-value">${state.speechPitch.toFixed(1)}</span>
-            </div>
-          </div>
-        </div>
-        <div class="setting-group">
-          <label>关于 About</label>
-          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-            <span style="font-weight:600">语音键盘 VoiceKeys v1.1</span>
-            <span style="font-size:13px;color:var(--text-secondary)">Accessible Chinese + English TTS keyboard. Full pinyin dictionary with 407 syllables and 3,200+ characters. Works offline as a PWA.</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// ── Escape helpers ──
-function escapeHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
-}
-function escapeAttr(s) {
-  return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
-
 // ── Global handlers (called from onclick) ──
 window.setTtsLang = (lang) => { state.ttsLang = lang; Storage.set('ttsLang', lang); render(); };
 window.toggleSettings = () => { state.showSettings = !state.showSettings; render(); };
@@ -509,10 +749,16 @@ window.saveCurrentText = () => { savePhrase(state.text); };
 window.removeSavedPhrase = removeSavedPhrase;
 window.clearHistory = clearHistory;
 window.clearCanvas = clearCanvas;
-window.setTheme = (t) => { state.theme = t; Storage.set('theme', t); applyTheme(); render(); };
-window.setSpeechRate = (v) => { state.speechRate = parseFloat(v); Storage.set('speechRate', state.speechRate); render(); };
-window.setSpeechPitch = (v) => { state.speechPitch = parseFloat(v); Storage.set('speechPitch', state.speechPitch); render(); };
+
+// Settings handlers: use renderSettingsOnly() instead of full render()
+window.setTheme = (t) => { state.theme = t; Storage.set('theme', t); applyTheme(); renderSettingsOnly(); };
+window.setSpeechRate = (v) => { state.speechRate = parseFloat(v); Storage.set('speechRate', state.speechRate); renderSettingsOnly(); };
+window.setSpeechPitch = (v) => { state.speechPitch = parseFloat(v); Storage.set('speechPitch', state.speechPitch); renderSettingsOnly(); };
+window.setVoiceZh = (v) => { state.selectedVoiceZh = v; Storage.set('voiceZh', v); renderSettingsOnly(); };
+window.setVoiceEn = (v) => { state.selectedVoiceEn = v; Storage.set('voiceEn', v); renderSettingsOnly(); };
+window.refreshVoices = () => { state.voicesLoaded = false; loadVoices(); };
 
 // ── Init ──
 applyTheme();
 render();
+checkGcloudStatus();

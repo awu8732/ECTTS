@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#007AFF">
-  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="VoiceKeys">
   <meta name="description" content="Accessible Chinese + English text-to-speech keyboard">
@@ -22,17 +22,28 @@
   <title>语音键盘 VoiceKeys</title>
 </head>
 <body>
-  <div id="app">
-    <!-- Loading state -->
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="1.5">
-        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="#007AFF" opacity="0.15"/>
-        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-        <path d="M15.54 8.46a5 5 0 010 7.07"/>
-        <path d="M19.07 4.93a10 10 0 010 14.14"/>
-      </svg>
-      <span style="color:#6E6E73;font-family:-apple-system,sans-serif;font-size:14px">加载中…</span>
-    </div>
+  <!-- App renders into this: -->
+  <div id="app"></div>
+
+  <!-- Loader lives outside #app, so render() never wipes it: -->
+  <div id="loading" style="
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 12px;
+        background: #F2F2F7;
+        z-index: 999;
+      ">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="1.5">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="#007AFF" opacity="0.15"/>
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+      <path d="M15.54 8.46a5 5 0 010 7.07"/>
+      <path d="M19.07 4.93a10 10 0 010 14.14"/>
+    </svg>
+    <span style="color:#6E6E73;font-family:-apple-system,sans-serif;font-size:14px">加载中…</span>
   </div>
 
   <script src="/src/pinyin-dict.js"></script>

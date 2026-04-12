@@ -1,0 +1,31 @@
+/* ========== Voice Picker Select ========== */
+.voice-select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  appearance: auto;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.voice-select:focus {
+  border-color: var(--accent);
+}
+.voice-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Settings code tag */
+.settings-body code {
+  background: var(--bg-key-special);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+}
