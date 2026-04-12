@@ -761,4 +761,7 @@ window.refreshVoices = () => { state.voicesLoaded = false; loadVoices(); };
 // ── Init ──
 applyTheme();
 render();
+
+// dismiss the loading screen
+document.getElementById('loading')?.remove();
 checkGcloudStatus();
