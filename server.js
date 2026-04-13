@@ -159,6 +159,76 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── API: translate text (Google Cloud Translation v2)
+  if (pathname === '/api/translate' && req.method === 'POST') {
+    if (!GOOGLE_TTS_API_KEY) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'API key not configured' }));
+    }
+    const body = await readBody(req);
+    let parsed;
+    try {
+      parsed = JSON.parse(body.toString());
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    }
+
+    const { text, source, target } = parsed;
+    if (!text || !target) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Missing text or target' }));
+    }
+
+    const translateUrl = `https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_TTS_API_KEY}`;
+    const translateParsed = new URL(translateUrl);
+    const translateBody = JSON.stringify({
+      q: text,
+      source: source || '',
+      target: target,
+      format: 'text',
+    });
+    const translateOptions = {
+      hostname: translateParsed.hostname,
+      path: translateParsed.pathname + translateParsed.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(translateBody),
+      },
+    };
+    const greq = https.request(translateOptions, (gres) => {
+      const chunks = [];
+      gres.on('data', c => chunks.push(c));
+      gres.on('end', () => {
+        const data = Buffer.concat(chunks);
+        try {
+          const json = JSON.parse(data.toString());
+          const translated = json?.data?.translations?.[0]?.translatedText || '';
+          const detectedSource = json?.data?.translations?.[0]?.detectedSourceLanguage || source || '';
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ translatedText: translated, detectedSource }));
+        } catch {
+          res.writeHead(gres.statusCode, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(data);
+        }
+      });
+    });
+    greq.on('error', (err) => {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
+    greq.write(translateBody);
+    greq.end();
+    return;
+  }
+
   // ── Static file serving ──────────────────────────────────────
   let filePath = pathname === '/' ? '/index.html' : pathname;
   filePath = path.join(__dirname, filePath);

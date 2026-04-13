@@ -822,3 +822,110 @@ body {
   .key { height: 38px; }
   .key-space, .key-globe, .key-return { height: 38px; }
 }
+
+/* ── Translation ───────────────────────────────── */
+.btn-translate {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-translate:disabled { opacity: 0.4; cursor: default; }
+.btn-translate.translating {
+  animation: pulse 1.5s infinite;
+}
+
+.translation-result {
+  margin: 0 0 8px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
+  animation: fadeSlideIn 0.2s ease;
+}
+.translation-result.error {
+  background: #fef2f2;
+  border-color: var(--accent-red);
+}
+[data-theme="dark"] .translation-result.error {
+  background: rgba(239,68,68,0.1);
+}
+.translation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.translation-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+}
+.translation-result.error .translation-label {
+  color: var(--accent-red);
+}
+.translation-dismiss {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+.translation-dismiss:hover { opacity: 1; }
+.translation-text {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.translation-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Toggle Switch ─────────────────────────────── */
+.toggle-btn {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  border-radius: 14px;
+  border: none;
+  background: var(--bg-key-special);
+  cursor: pointer;
+  padding: 2px;
+  transition: background 0.25s;
+  flex-shrink: 0;
+}
+.toggle-btn.active {
+  background: var(--accent-green);
+}
+.toggle-knob {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: transform 0.25s;
+}
+.toggle-btn.active .toggle-knob {
+  transform: translateX(20px);
+}

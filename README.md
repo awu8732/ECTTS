@@ -4,16 +4,17 @@ Accessible Chinese + English text-to-speech keyboard PWA.
 
 ## Features
 
-- **Pinyin input** with candidate selection bar (demo dictionary of ~70 syllables)
+- **Pinyin input** with candidate selection bar (comprehensive dictionary: 478 syllables, ~21,000 characters)
 - **English ABC keyboard** with standard QWERTY layout
-- **Handwriting canvas** area (demo; wire to an OCR engine for production)
-- **Text-to-speech** playback using the Web Speech API
+- **Handwriting canvas** with Google Cloud Vision OCR recognition
+- **Text-to-speech** playback via Google Cloud TTS (browser Web Speech API fallback)
+- **Translation** between Chinese and English via Google Cloud Translation API
 - **Quick phrases** panel for common expressions in both languages
 - **Saved phrases** that persist across sessions via localStorage
 - **Conversation history** of recently spoken text
-- **Settings panel** with speech rate, pitch, and theme controls
+- **Settings panel** with speech rate, pitch, translation target, and theme controls
 - **Theme support**: auto (system), light, dark, and high-contrast modes
-- **Fully offline** via service worker caching
+- **Fully offline** core functionality via service worker caching (translation requires network)
 - **Installable PWA** with manifest, icons, and Add to Home Screen support
 
 ## Project Structure
@@ -84,11 +85,12 @@ Push the contents to a repo and enable Pages in Settings → Pages → Source: m
 
 ## Production Notes
 
-1. **Pinyin dictionary**: The included dictionary is a demo subset. For production, integrate a full pinyin IME library such as `pinyin-engine` or Google's libpinyin.
-2. **Handwriting recognition**: The canvas is currently draw-only. Connect it to an OCR service like Google Cloud Vision, Baidu OCR, or Tesseract.js for character recognition.
-3. **TTS voices**: Quality and availability of Chinese voices varies by OS and browser. Consider a cloud TTS fallback (Google Cloud TTS, Azure Cognitive Services) for consistent quality.
-4. **Accessibility**: The app uses semantic HTML and ARIA labels. For a production release, run a full audit with Lighthouse and screen readers.
-5. **Cache versioning**: Update `CACHE_NAME` in `sw.js` whenever you deploy new assets to bust the old cache.
+1. **Pinyin dictionary**: The included dictionary covers ~21,000 characters across 478 syllables (full CJK Unified Ideographs block U+4E00–U+9FFF), frequency-sorted with common characters first. To regenerate, run `scripts/build-pinyin-dict.js` (requires `pypinyin`).
+2. **Handwriting recognition**: Connected to Google Cloud Vision API via the server proxy. Requires the Vision API to be enabled on the same GCP project.
+3. **Translation**: Uses Google Cloud Translation API v2. Requires the Cloud Translation API to be enabled on the GCP project. The same `GOOGLE_TTS_API_KEY` is reused; translation is online-only with a graceful offline message.
+4. **TTS voices**: Google Cloud TTS is the primary engine; the browser's Web Speech API is the automatic offline fallback.
+5. **Accessibility**: The app uses semantic HTML and ARIA labels. For a production release, run a full audit with Lighthouse and screen readers.
+6. **Cache versioning**: Update `CACHE_NAME` in `sw.js` whenever you deploy new assets to bust the old cache.
 
 ## Browser Support
 

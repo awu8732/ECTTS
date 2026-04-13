@@ -64,6 +64,12 @@ const state = {
   selectedVoiceEn: Storage.get('voiceEn', ''),
   voicesLoaded: false,
   voicesLoading: false,
+  // Translation state
+  isTranslating: false,
+  translationResult: null,   // { text, source, target } or null
+  translateTarget: Storage.get('translateTarget', 'auto'), // 'auto', 'en', 'zh'
+  // Offline mode: when true, suppresses all API calls even if online
+  offlineMode: Storage.get('offlineMode', false),
 };
 
 // Currently playing audio element (for Google Cloud TTS)
@@ -85,6 +91,7 @@ const icons = {
   clock: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
   cloud: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg>`,
   refresh: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>`,
+  translate: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2v3"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/></svg>`,
 };
 
 // ── Theme ──
@@ -105,6 +112,10 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 // ── Google Cloud TTS ──────────────────────────────────────────
 
 async function checkGcloudStatus() {
+  if (state.offlineMode) {
+    state.gcloudAvailable = false;
+    return;
+  }
   try {
     const res = await fetch('/api/tts/status');
     const data = await res.json();
@@ -271,6 +282,94 @@ function stopSpeaking() {
   window.speechSynthesis.cancel();
   state.isSpeaking = false;
   render();
+}
+
+// ── Translation ──────────────────────────────────────────────
+
+async function translateText() {
+  const text = state.text.trim();
+  if (!text) return;
+
+  // Check online status
+  if (!navigator.onLine || state.offlineMode) {
+    state.translationResult = { text: '离线不可用 / Offline unavailable', source: '', target: '', error: true };
+    render();
+    setTimeout(() => { state.translationResult = null; render(); }, 3000);
+    return;
+  }
+
+  // Check if API is configured
+  if (!state.gcloudAvailable) {
+    state.translationResult = { text: 'Translation requires Google Cloud API key', source: '', target: '', error: true };
+    render();
+    setTimeout(() => { state.translationResult = null; render(); }, 3000);
+    return;
+  }
+
+  // Detect direction: if text has CJK chars, translate to English; otherwise to Chinese
+  const hasCJK = /[\u4e00-\u9fff]/.test(text);
+  let source, target;
+  if (state.translateTarget === 'auto') {
+    source = hasCJK ? 'zh' : 'en';
+    target = hasCJK ? 'en' : 'zh';
+  } else {
+    target = state.translateTarget;
+    source = target === 'en' ? 'zh' : 'en';
+  }
+
+  state.isTranslating = true;
+  state.translationResult = null;
+  render();
+
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, source, target }),
+    });
+
+    if (!res.ok) throw new Error(`Translation API returned ${res.status}`);
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    state.translationResult = {
+      text: data.translatedText,
+      source: data.detectedSource || source,
+      target,
+      error: false,
+    };
+  } catch (err) {
+    console.warn('Translation failed:', err);
+    state.translationResult = {
+      text: `翻译失败 / Translation failed: ${err.message}`,
+      source: '',
+      target: '',
+      error: true,
+    };
+  }
+
+  state.isTranslating = false;
+  render();
+}
+
+function dismissTranslation() {
+  state.translationResult = null;
+  render();
+}
+
+function useTranslation() {
+  if (state.translationResult && !state.translationResult.error) {
+    state.text = state.translationResult.text;
+    state.translationResult = null;
+    render();
+  }
+}
+
+function copyTranslation() {
+  if (state.translationResult && !state.translationResult.error) {
+    navigator.clipboard.writeText(state.translationResult.text).catch(() => {});
+  }
 }
 
 // ── Voice Preview (plays a short sample when switching voices) ──
@@ -787,6 +886,23 @@ function settingsBodyHTML() {
     </div>
 
     <div class="setting-group">
+      <label>联网模式 Connection</label>
+      <div class="setting-row">
+        <span>${state.offlineMode ? '🔒 离线模式 Offline' : '☁ 在线模式 Online'}</span>
+        <button class="toggle-btn ${state.offlineMode ? '' : 'active'}" onclick="toggleOfflineMode()" role="switch" aria-checked="${!state.offlineMode}">
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <span style="font-size:13px;color:var(--text-secondary)">
+          ${state.offlineMode
+            ? 'Cloud features disabled: TTS uses browser voices, translation and handwriting recognition are unavailable. Pinyin input and keyboard work normally.'
+            : 'Cloud features enabled: Google Cloud TTS, Translation, and Handwriting OCR are active when API key is configured.'}
+        </span>
+      </div>
+    </div>
+
+    <div class="setting-group">
       <label>TTS 引擎 Engine ${gcloudBadge}</label>
       ${state.gcloudAvailable ? `
         <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
@@ -850,10 +966,29 @@ function settingsBodyHTML() {
       </div>
     </div>
     <div class="setting-group">
+      <label>翻译 Translation</label>
+      <div class="setting-row">
+        <span>目标语言 Target</span>
+        <select class="voice-select" style="width:auto;min-width:120px" onchange="setTranslateTarget(this.value)">
+          <option value="auto" ${state.translateTarget === 'auto' ? 'selected' : ''}>自动 Auto</option>
+          <option value="en" ${state.translateTarget === 'en' ? 'selected' : ''}>English</option>
+          <option value="zh" ${state.translateTarget === 'zh' ? 'selected' : ''}>中文 Chinese</option>
+        </select>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <span style="font-size:13px;color:var(--text-secondary)">
+          ${state.gcloudAvailable
+            ? '✅ Google Cloud Translation API is available.'
+            : '⚠ Translation requires Google Cloud API key with Translation API enabled.'}
+          Auto mode detects language from text.
+        </span>
+      </div>
+    </div>
+    <div class="setting-group">
       <label>关于 About</label>
       <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-        <span style="font-weight:600">语音键盘 VoiceKeys v2.0</span>
-        <span style="font-size:13px;color:var(--text-secondary)">Accessible Chinese + English TTS keyboard with Google Cloud TTS integration. Full pinyin dictionary with 407 syllables and 3,200+ characters. Falls back to browser TTS when offline or unconfigured.</span>
+        <span style="font-weight:600">语音键盘 VoiceKeys v2.1</span>
+        <span style="font-size:13px;color:var(--text-secondary)">Accessible Chinese + English TTS keyboard with Google Cloud TTS integration, translation, and comprehensive pinyin dictionary with 478 syllables and ~21,000 characters. Falls back to browser TTS when offline or unconfigured.</span>
       </div>
     </div>
   `;
@@ -903,6 +1038,12 @@ function render() {
           ${state.text ? `<button class="btn-clear" onclick="clearText()">${icons.close} 清除</button>` : ''}
           ${state.text ? `<button class="btn-clear" onclick="saveCurrentText()">${icons.save} 保存</button>` : ''}
           <button class="btn-phrases ${state.showPhrases ? 'active' : ''}" onclick="togglePhrases()">快捷短语</button>
+          <button class="btn-translate ${state.isTranslating ? 'translating' : ''}"
+            onclick="translateText()"
+            ${!state.text.trim() || state.isTranslating ? 'disabled' : ''}
+            title="翻译 Translate">
+            ${state.isTranslating ? icons.translate + ' …' : icons.translate + ' 翻译'}
+          </button>
           <button class="btn-speak ${state.isSpeaking ? 'speaking' : 'ready'}"
             onclick="${state.isSpeaking ? 'stopSpeaking()' : 'speakCurrent()'}"
             ${!state.text.trim() && !state.isSpeaking ? 'disabled' : ''}>
@@ -910,6 +1051,25 @@ function render() {
           </button>
         </div>
       </div>
+
+      ${state.translationResult ? `
+        <div class="translation-result ${state.translationResult.error ? 'error' : ''}">
+          <div class="translation-header">
+            <span class="translation-label">${state.translationResult.error ? '⚠' : '🌐'} ${
+              state.translationResult.error ? '' :
+              (state.translationResult.source === 'zh' ? '中→EN' : 'EN→中')
+            }</span>
+            <button class="translation-dismiss" onclick="dismissTranslation()">${icons.close}</button>
+          </div>
+          <div class="translation-text">${escapeHtml(state.translationResult.text)}</div>
+          ${!state.translationResult.error ? `
+            <div class="translation-actions">
+              <button class="btn-clear" onclick="copyTranslation()">📋 复制 Copy</button>
+              <button class="btn-clear" onclick="useTranslation()">↩ 替换 Replace</button>
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
 
       ${state.isSpeaking ? `
         <div class="speak-indicator">
@@ -1090,6 +1250,10 @@ window.selectHwCandidate = selectHwCandidate;
 window.hwUndo = hwUndo;
 window.hwRecognizeNow = hwRecognizeNow;
 window.hwConfirm = hwConfirm;
+window.translateText = translateText;
+window.dismissTranslation = dismissTranslation;
+window.useTranslation = useTranslation;
+window.copyTranslation = copyTranslation;
 
 // Settings handlers: use renderSettingsOnly() instead of full render()
 window.setTheme = (t) => { state.theme = t; Storage.set('theme', t); applyTheme(); renderSettingsOnly(); };
@@ -1099,6 +1263,17 @@ window.setVoiceZh = (v) => { state.selectedVoiceZh = v; Storage.set('voiceZh', v
 window.setVoiceEn = (v) => { state.selectedVoiceEn = v; Storage.set('voiceEn', v); previewVoice(v, 'en'); renderSettingsOnly(); };
 window.refreshVoices = () => { state.voicesLoaded = false; loadVoices(); };
 window.previewVoice = previewVoice;
+window.setTranslateTarget = (v) => { state.translateTarget = v; Storage.set('translateTarget', v); renderSettingsOnly(); };
+window.toggleOfflineMode = () => {
+  state.offlineMode = !state.offlineMode;
+  Storage.set('offlineMode', state.offlineMode);
+  if (state.offlineMode) {
+    state.gcloudAvailable = false;
+  } else {
+    checkGcloudStatus();
+  }
+  render();
+};
 
 // ── Init ──
 applyTheme();

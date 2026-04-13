@@ -1,4 +1,4 @@
-const CACHE_NAME = 'voicekeys-v1';
+const CACHE_NAME = 'voicekeys-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

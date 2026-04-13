@@ -26,11 +26,13 @@ There are no build, lint, or test commands; this is a static site with a thin No
 - Lightweight Node.js HTTP server (zero dependencies)
 - Proxies `/api/tts/synthesize` -> `POST texttospeech.googleapis.com/v1/text:synthesize`
 - Proxies `/api/tts/voices` -> `GET texttospeech.googleapis.com/v1/voices`
+- Proxies `/api/translate` -> `POST translation.googleapis.com/language/translate/v2`
 - Exposes `/api/tts/status` so the frontend knows if Google Cloud is configured
 - Serves all static files from the project root
 
 ### Frontend
-- **`src/app.js`**: Single-file app with state management, rendering, TTS orchestration (Google Cloud primary, Web Speech fallback), keyboard input, pinyin lookup, localStorage persistence, canvas drawing. A central `state` object drives everything; `render()` regenerates the full UI, while `renderSettingsOnly()` patches just the settings panel to avoid full-page flicker on slider/button changes.
+- **`src/app.js`**: Single-file app with state management, rendering, TTS orchestration (Google Cloud primary, Web Speech fallback), translation (Google Cloud Translation v2), keyboard input, pinyin lookup, localStorage persistence, canvas drawing. A central `state` object drives everything; `render()` regenerates the full UI, while `renderSettingsOnly()` patches just the settings panel to avoid full-page flicker on slider/button changes.
+- **`src/pinyin-dict.js`**: Comprehensive pinyin dictionary with 478 syllables and ~21,000 characters (full CJK Unified Ideographs block), frequency-sorted.
 - **`src/style.css`**: All styling via CSS custom properties. Four themes (auto/light/dark/high-contrast).
 - **`sw.js`**: Cache-first service worker. Update `CACHE_NAME` when deploying changes.
 - **`index.html`**: Shell that loads scripts and registers the service worker.
