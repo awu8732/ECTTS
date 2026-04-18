@@ -475,6 +475,22 @@ body {
   margin-right: 6px;
   flex-shrink: 0;
 }
+.pinyin-seg {
+  padding: 1px 3px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.pinyin-seg.active {
+  background: var(--accent);
+  color: #fff;
+  padding: 1px 5px;
+}
+.pinyin-sep {
+  margin: 0 1px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+  font-size: 12px;
+}
 .candidate-btn {
   padding: 4px 12px;
   border-radius: 8px;

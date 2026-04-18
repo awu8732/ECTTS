@@ -47,6 +47,9 @@ const state = {
   pinyinBuffer: '',
   candidates: [],
   mode: 'pinyin',        // pinyin | english | handwrite
+  // Pinyin segmentation state
+  pinyinSegments: [],     // array of syllable strings from DP segmenter
+  pinyinSegIndex: 0,      // which segment we're currently picking a char for
   isSpeaking: false,
   ttsLang: Storage.get('ttsLang', 'zh'),
   showPhrases: false,
@@ -456,17 +459,101 @@ function clearHistory() {
   render();
 }
 
+// ── Pinyin segmentation (DP, frequency-weighted) ──
+
+// Build set of valid syllables from PINYIN_MAP keys
+const VALID_SYLLABLES = new Set(Object.keys(PINYIN_MAP));
+
+// Compute max syllable length for DP bound
+const MAX_SYL_LEN = Math.max(...[...VALID_SYLLABLES].map(s => s.length));
+
+/**
+ * Frequency score for a syllable: lower = more common.
+ * Uses the first character's position in PINYIN_MAP (index 0 = most common).
+ * Syllables whose top character is very common get a lower (better) score.
+ */
+function sylFreqScore(syl) {
+  const chars = PINYIN_MAP[syl];
+  if (!chars || chars.length === 0) return 1000;
+  // More candidates = more common syllable (rough heuristic)
+  // Combined with position-based weight
+  return Math.max(0, 50 - chars.length);
+}
+
+/**
+ * DP pinyin segmenter.
+ * Given a continuous lowercase pinyin string, returns the optimal
+ * array of syllable strings, or null if no valid segmentation exists.
+ *
+ * Optimizes for: fewest segments first, then lowest total frequency score
+ * (preferring common syllables when segment count ties).
+ */
+function segmentPinyin(input) {
+  const n = input.length;
+  if (n === 0) return [];
+
+  // dp[i] = { segments: number, score: number, prev: index, syl: string }
+  // represents best segmentation of input[0..i-1]
+  const dp = new Array(n + 1).fill(null);
+  dp[0] = { segments: 0, score: 0, prev: -1, syl: '' };
+
+  for (let i = 0; i < n; i++) {
+    if (!dp[i]) continue;
+    const maxLen = Math.min(MAX_SYL_LEN, n - i);
+    for (let len = 1; len <= maxLen; len++) {
+      const syl = input.slice(i, i + len);
+      if (!VALID_SYLLABLES.has(syl)) continue;
+      const j = i + len;
+      const newSegs = dp[i].segments + 1;
+      const newScore = dp[i].score + sylFreqScore(syl);
+      const current = dp[j];
+      // Prefer fewer segments; on tie, prefer lower score (more common)
+      if (!current || newSegs < current.segments ||
+          (newSegs === current.segments && newScore < current.score)) {
+        dp[j] = { segments: newSegs, score: newScore, prev: i, syl };
+      }
+    }
+  }
+
+  if (!dp[n]) return null; // no valid segmentation
+
+  // Backtrack
+  const result = [];
+  let idx = n;
+  while (idx > 0) {
+    result.unshift(dp[idx].syl);
+    idx = dp[idx].prev;
+  }
+  return result;
+}
+
 // ── Pinyin lookup ──
 function updateCandidates() {
   if (state.mode === 'pinyin' && state.pinyinBuffer.length > 0) {
     const lower = state.pinyinBuffer.toLowerCase();
-    const exact = PINYIN_MAP[lower] || [];
-    const partials = Object.entries(PINYIN_MAP)
-      .filter(([k]) => k.startsWith(lower) && k !== lower)
-      .flatMap(([, v]) => v.slice(0, 2));
-    state.candidates = [...exact, ...partials].slice(0, 9);
+
+    // Try DP segmentation
+    const segments = segmentPinyin(lower);
+
+    if (segments && segments.length > 0) {
+      state.pinyinSegments = segments;
+      // Show candidates for the current segment (first unresolved)
+      const currentSyl = segments[state.pinyinSegIndex] || segments[0];
+      state.candidates = (PINYIN_MAP[currentSyl] || []).slice(0, 9);
+    } else {
+      // No valid full segmentation: fall back to prefix matching
+      state.pinyinSegments = [];
+      state.pinyinSegIndex = 0;
+      const exact = PINYIN_MAP[lower] || [];
+      const partials = Object.entries(PINYIN_MAP)
+        .filter(([k]) => k.startsWith(lower) && k !== lower)
+        .flatMap(([, v]) => v.slice(0, 2));
+      state.candidates = [...exact, ...partials].slice(0, 9);
+    }
   } else {
     state.candidates = [];
+    state.pinyinSegments = [];
+    state.pinyinSegIndex = 0;
   }
 }
 
@@ -479,13 +566,14 @@ function handleKey(key) {
     if (key === '⌫') {
       if (state.pinyinBuffer.length > 0) {
         state.pinyinBuffer = state.pinyinBuffer.slice(0, -1);
+        state.pinyinSegIndex = 0; // reset segment pointer on edit
       } else {
         state.text = state.text.slice(0, -1);
       }
     } else if (key === 'space') {
       if (state.candidates.length > 0) {
-        state.text += state.candidates[0];
-        state.pinyinBuffer = '';
+        selectCandidate(state.candidates[0]);
+        return; // selectCandidate calls render
       } else {
         state.text += ' ';
       }
@@ -493,11 +581,14 @@ function handleKey(key) {
       if (state.pinyinBuffer) {
         state.text += state.pinyinBuffer;
         state.pinyinBuffer = '';
+        state.pinyinSegments = [];
+        state.pinyinSegIndex = 0;
       } else {
         state.text += '\n';
       }
     } else {
       state.pinyinBuffer += key;
+      state.pinyinSegIndex = 0; // reset to first segment when typing
     }
   } else if (state.mode === 'english') {
     if (key === '⌫') {
@@ -516,8 +607,30 @@ function handleKey(key) {
 
 function selectCandidate(c) {
   state.text += c;
-  state.pinyinBuffer = '';
-  state.candidates = [];
+
+  if (state.pinyinSegments.length > 1) {
+    // Advance to next segment
+    state.pinyinSegIndex++;
+    if (state.pinyinSegIndex >= state.pinyinSegments.length) {
+      // All segments resolved: clear buffer
+      state.pinyinBuffer = '';
+      state.pinyinSegments = [];
+      state.pinyinSegIndex = 0;
+      state.candidates = [];
+    } else {
+      // Rebuild buffer from remaining segments
+      state.pinyinBuffer = state.pinyinSegments.slice(state.pinyinSegIndex).join('');
+      state.pinyinSegments = state.pinyinSegments.slice(state.pinyinSegIndex);
+      state.pinyinSegIndex = 0;
+      updateCandidates();
+    }
+  } else {
+    // Single segment or no segmentation: clear as before
+    state.pinyinBuffer = '';
+    state.pinyinSegments = [];
+    state.pinyinSegIndex = 0;
+    state.candidates = [];
+  }
   render();
 }
 
@@ -1132,7 +1245,13 @@ function render() {
 
       ${state.mode === 'pinyin' ? `
         <div class="candidate-bar">
-          ${state.pinyinBuffer ? `<span class="pinyin-display">${escapeHtml(state.pinyinBuffer)}</span>` : ''}
+          ${state.pinyinBuffer ? `<span class="pinyin-display">${
+            state.pinyinSegments.length > 1
+              ? state.pinyinSegments.map((seg, i) =>
+                  `<span class="pinyin-seg ${i === 0 ? 'active' : ''}">${escapeHtml(seg)}</span>`
+                ).join('<span class="pinyin-sep">·</span>')
+              : escapeHtml(state.pinyinBuffer)
+          }</span>` : ''}
           ${state.candidates.length > 0
             ? state.candidates.map((c, i) => `<button class="candidate-btn ${i === 0 ? 'primary' : ''}" onclick="selectCandidate('${c}')">${c}</button>`).join('')
             : (!state.pinyinBuffer ? '<span class="candidate-hint">输入拼音选择汉字</span>' : '')
@@ -1231,14 +1350,14 @@ function render() {
 window.setTtsLang = (lang) => { state.ttsLang = lang; Storage.set('ttsLang', lang); render(); };
 window.toggleSettings = () => { state.showSettings = !state.showSettings; render(); };
 window.togglePhrases = () => { state.showPhrases = !state.showPhrases; render(); };
-window.setMode = (m) => { state.mode = m; state.pinyinBuffer = ''; state.candidates = []; render(); };
-window.toggleLang = () => { state.mode = state.mode === 'pinyin' ? 'english' : 'pinyin'; state.pinyinBuffer = ''; render(); };
+window.setMode = (m) => { state.mode = m; state.pinyinBuffer = ''; state.candidates = []; state.pinyinSegments = []; state.pinyinSegIndex = 0; render(); };
+window.toggleLang = () => { state.mode = state.mode === 'pinyin' ? 'english' : 'pinyin'; state.pinyinBuffer = ''; state.pinyinSegments = []; state.pinyinSegIndex = 0; render(); };
 window.handleKey = handleKey;
 window.selectCandidate = selectCandidate;
 window.speak = speak;
 window.stopSpeaking = stopSpeaking;
 window.speakCurrent = () => speak(state.text);
-window.clearText = () => { state.text = ''; state.pinyinBuffer = ''; state.candidates = []; render(); };
+window.clearText = () => { state.text = ''; state.pinyinBuffer = ''; state.candidates = []; state.pinyinSegments = []; state.pinyinSegIndex = 0; render(); };
 window.onTextInput = (val) => { state.text = val; };
 window.usePhrase = (t) => { state.text += t; speak(t); render(); };
 window.loadText = (t) => { state.text = t; render(); };
