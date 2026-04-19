@@ -429,6 +429,40 @@ body {
   padding: 6px 3px 20px;
   border-top: 1px solid var(--border);
 }
+.keyboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 8px;
+}
+.keyboard-toggle {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.keyboard-toggle:active {
+  background: var(--bg-surface);
+}
+.keyboard-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 4px;
+}
+.keyboard-collapse-btn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
 .mode-tabs {
   display: flex;
   justify-content: center;

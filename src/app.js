@@ -73,6 +73,8 @@ const state = {
   translateTarget: Storage.get('translateTarget', 'auto'), // 'auto', 'en', 'zh'
   // Offline mode: when true, suppresses all API calls even if online
   offlineMode: Storage.get('offlineMode', false),
+  // Keyboard visibility
+  showKeyboard: true,
 };
 
 // Currently playing audio element (for Google Cloud TTS)
@@ -1237,64 +1239,71 @@ function render() {
 
     <!-- Keyboard -->
     <div class="keyboard">
-      <div class="mode-tabs">
-        <button class="mode-tab ${state.mode === 'pinyin' ? 'active' : ''}" onclick="setMode('pinyin')">拼音</button>
-        <button class="mode-tab ${state.mode === 'english' ? 'active' : ''}" onclick="setMode('english')">ABC</button>
-        <button class="mode-tab ${state.mode === 'handwrite' ? 'active' : ''}" onclick="setMode('handwrite')">${icons.draw} 手写</button>
+      <div class="keyboard-topbar">
+        <div class="mode-tabs">
+          <button class="mode-tab ${state.mode === 'pinyin' ? 'active' : ''}" onclick="setMode('pinyin')">拼音</button>
+          <button class="mode-tab ${state.mode === 'english' ? 'active' : ''}" onclick="setMode('english')">ABC</button>
+          <button class="mode-tab ${state.mode === 'handwrite' ? 'active' : ''}" onclick="setMode('handwrite')">${icons.draw} 手写</button>
+        </div>
+        <button class="keyboard-collapse-btn" onclick="toggleKeyboard()" aria-label="Toggle keyboard">
+          ${state.showKeyboard ? '▼' : '▲'}
+        </button>
       </div>
 
-      ${state.mode === 'pinyin' ? `
-        <div class="candidate-bar">
-          ${state.pinyinBuffer ? `<span class="pinyin-display">${
-            state.pinyinSegments.length > 1
-              ? state.pinyinSegments.map((seg, i) =>
-                  `<span class="pinyin-seg ${i === 0 ? 'active' : ''}">${escapeHtml(seg)}</span>`
-                ).join('<span class="pinyin-sep">·</span>')
-              : escapeHtml(state.pinyinBuffer)
-          }</span>` : ''}
-          ${state.candidates.length > 0
-            ? state.candidates.map((c, i) => `<button class="candidate-btn ${i === 0 ? 'primary' : ''}" onclick="selectCandidate('${c}')">${c}</button>`).join('')
-            : (!state.pinyinBuffer ? '<span class="candidate-hint">输入拼音选择汉字</span>' : '')
-          }
-        </div>
-      ` : ''}
+      ${state.showKeyboard ? `
+        ${state.mode === 'pinyin' ? `
+          <div class="candidate-bar">
+            ${state.pinyinBuffer ? `<span class="pinyin-display">${
+              state.pinyinSegments.length > 1
+                ? state.pinyinSegments.map((seg, i) =>
+                    `<span class="pinyin-seg ${i === 0 ? 'active' : ''}">${escapeHtml(seg)}</span>`
+                  ).join('<span class="pinyin-sep">·</span>')
+                : escapeHtml(state.pinyinBuffer)
+            }</span>` : ''}
+            ${state.candidates.length > 0
+              ? state.candidates.map((c, i) => `<button class="candidate-btn ${i === 0 ? 'primary' : ''}" onclick="selectCandidate('${c}')">${c}</button>`).join('')
+              : (!state.pinyinBuffer ? '<span class="candidate-hint">输入拼音选择汉字</span>' : '')
+            }
+          </div>
+        ` : ''}
 
-      ${state.mode === 'handwrite' ? `
-        <div class="candidate-bar" id="hw-candidate-bar">
-          <span class="candidate-hint">手写后自动识别</span>
-        </div>
-        <div class="handwrite-area">
-          <div class="canvas-wrap">
-            <canvas id="hw-canvas" width="600" height="220"></canvas>
-            <div class="canvas-grid"></div>
-            <div class="canvas-hint">在此区域手写输入</div>
-            <div class="canvas-actions">
-              <button class="canvas-btn" onclick="hwUndo()">撤销</button>
-              <button class="canvas-btn" onclick="hwRecognizeNow()">识别</button>
-              <button class="canvas-btn" onclick="clearCanvas()">清除</button>
+        ${state.mode === 'handwrite' ? `
+          <div class="candidate-bar" id="hw-candidate-bar">
+            <span class="candidate-hint">手写后自动识别</span>
+          </div>
+          <div class="handwrite-area">
+            <div class="canvas-wrap">
+              <canvas id="hw-canvas" width="600" height="220"></canvas>
+              <div class="canvas-grid"></div>
+              <div class="canvas-hint">在此区域手写输入</div>
+              <div class="canvas-actions">
+                <button class="canvas-btn" onclick="hwUndo()">撤销</button>
+                <button class="canvas-btn" onclick="hwRecognizeNow()">识别</button>
+                <button class="canvas-btn" onclick="clearCanvas()">清除</button>
+              </div>
+            </div>
+            ${!state.gcloudAvailable ? '<p class="handwrite-note">⚠ 需要配置 Google API Key 启用手写识别</p>' : ''}
+          </div>
+        ` : `
+          <div class="key-rows">
+            ${rows.map(row => `
+              <div class="key-row">
+                ${row.map(k => {
+                  const isSpecial = k === '⌫';
+                  const isActive = state.activeKey === k;
+                  return `<button class="key ${isSpecial ? 'special' : ''} ${isActive ? 'active' : ''}"
+                    onclick="handleKey('${k}')">${k === '⌫' ? icons.backspace : escapeHtml(k)}</button>`;
+                }).join('')}
+              </div>
+            `).join('')}
+            <div class="bottom-row">
+              <button class="key-globe" onclick="toggleLang()">${icons.globe}</button>
+              <button class="key-space" onclick="handleKey('space')">${state.mode === 'pinyin' ? '空格 / 选字' : 'space'}</button>
+              <button class="key-return" onclick="handleKey('return')">${state.mode === 'pinyin' && state.pinyinBuffer ? '确认' : '换行'}</button>
             </div>
           </div>
-          ${!state.gcloudAvailable ? '<p class="handwrite-note">⚠ 需要配置 Google API Key 启用手写识别</p>' : ''}
-        </div>
-      ` : `
-        <div class="key-rows">
-          ${rows.map(row => `
-            <div class="key-row">
-              ${row.map(k => {
-                const isSpecial = k === '⌫';
-                const isActive = state.activeKey === k;
-                return `<button class="key ${isSpecial ? 'special' : ''} ${isActive ? 'active' : ''}"
-                  onclick="handleKey('${k}')">${k === '⌫' ? icons.backspace : escapeHtml(k)}</button>`;
-              }).join('')}
-            </div>
-          `).join('')}
-          <div class="bottom-row">
-            <button class="key-globe" onclick="toggleLang()">${icons.globe}</button>
-            <button class="key-space" onclick="handleKey('space')">${state.mode === 'pinyin' ? '空格 / 选字' : 'space'}</button>
-            <button class="key-return" onclick="handleKey('return')">${state.mode === 'pinyin' && state.pinyinBuffer ? '确认' : '换行'}</button>
-          </div>
-        </div>
-      `}
+        `}
+      ` : ''}
     </div>
 
     ${state.showSettings ? renderSettings() : ''}
@@ -1349,6 +1358,7 @@ function render() {
 // ── Global handlers (called from onclick) ──
 window.setTtsLang = (lang) => { state.ttsLang = lang; Storage.set('ttsLang', lang); render(); };
 window.toggleSettings = () => { state.showSettings = !state.showSettings; render(); };
+window.toggleKeyboard = () => { state.showKeyboard = !state.showKeyboard; render(); };
 window.togglePhrases = () => { state.showPhrases = !state.showPhrases; render(); };
 window.setMode = (m) => { state.mode = m; state.pinyinBuffer = ''; state.candidates = []; state.pinyinSegments = []; state.pinyinSegIndex = 0; render(); };
 window.toggleLang = () => { state.mode = state.mode === 'pinyin' ? 'english' : 'pinyin'; state.pinyinBuffer = ''; state.pinyinSegments = []; state.pinyinSegIndex = 0; render(); };
@@ -1358,7 +1368,30 @@ window.speak = speak;
 window.stopSpeaking = stopSpeaking;
 window.speakCurrent = () => speak(state.text);
 window.clearText = () => { state.text = ''; state.pinyinBuffer = ''; state.candidates = []; state.pinyinSegments = []; state.pinyinSegIndex = 0; render(); };
-window.onTextInput = (val) => { state.text = val; };
+window.onTextInput = (val) => {
+  state.text = val;
+  // Only update the action buttons, not the whole DOM — re-rendering
+  // would destroy the textarea and lose iOS keyboard focus.
+  const actions = document.querySelector('.composer-actions');
+  if (actions) {
+    actions.innerHTML = `
+      ${state.text ? `<button class="btn-clear" onclick="clearText()">${icons.close} 清除</button>` : ''}
+      ${state.text ? `<button class="btn-clear" onclick="saveCurrentText()">${icons.save} 保存</button>` : ''}
+      <button class="btn-phrases ${state.showPhrases ? 'active' : ''}" onclick="togglePhrases()">快捷短语</button>
+      <button class="btn-translate ${state.isTranslating ? 'translating' : ''}"
+        onclick="translateText()"
+        ${!state.text.trim() || state.isTranslating ? 'disabled' : ''}
+        title="翻译 Translate">
+        ${state.isTranslating ? icons.translate + ' …' : icons.translate + ' 翻译'}
+      </button>
+      <button class="btn-speak ${state.isSpeaking ? 'speaking' : 'ready'}"
+        onclick="${state.isSpeaking ? 'stopSpeaking()' : 'speakCurrent()'}"
+        ${!state.text.trim() && !state.isSpeaking ? 'disabled' : ''}>
+        ${state.isSpeaking ? icons.stop + ' 停止' : icons.play + ' 朗读'}
+      </button>
+    `;
+  }
+};
 window.usePhrase = (t) => { state.text += t; speak(t); render(); };
 window.loadText = (t) => { state.text = t; render(); };
 window.saveCurrentText = () => { savePhrase(state.text); };
