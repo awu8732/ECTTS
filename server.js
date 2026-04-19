@@ -237,7 +237,7 @@ const server = http.createServer(async (req, res) => {
   filePath = path.join(__dirname, filePath);
 
   // Security: prevent directory traversal
-  if (!filePath.startsWith(__dirname)) {
+if (!filePath.startsWith(__dirname + path.sep)) {
     res.writeHead(403);
     return res.end('Forbidden');
   }
