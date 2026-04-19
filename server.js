@@ -3,6 +3,9 @@
    Keeps the Google Cloud API key server-side.
    ============================================ */
 
+console.log('__dirname:', __dirname);
+console.log('files:', require('fs').readdirSync(__dirname));
+
 require('dotenv').config();
 const http = require('http');
 const https = require('https');
@@ -16,7 +19,7 @@ const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || '';
 if (!GOOGLE_TTS_API_KEY) {
   console.warn('\n⚠  GOOGLE_TTS_API_KEY is not set.');
   console.warn('   Export it before starting:');
-  console.warn('   export GOOGLE_TTS_API_KEY="AIza..."');
+  console.warn('   export GOOGLE_TTS_API_KEY="piOa..."');
   console.warn('   The app will fall back to browser TTS until a key is provided.\n');
 }
 
