@@ -246,7 +246,7 @@ async function speak(content) {
   stopSpeaking();
 
   state.isSpeaking = true;
-  render();
+  _updateSpeakButton();
   addToHistory(content);
 
   if (state.gcloudAvailable) {
@@ -287,6 +287,28 @@ function stopSpeaking() {
   window.speechSynthesis.cancel();
   state.isSpeaking = false;
   render();
+}
+
+function _updateSpeakButton() {
+  const actions = document.querySelector('.composer-actions');
+  if (actions) {
+    actions.innerHTML = `
+      ${state.text ? `<button class="btn-clear" onclick="clearText()">${icons.close} 清除</button>` : ''}
+      ${state.text ? `<button class="btn-clear" onclick="saveCurrentText()">${icons.save} 保存</button>` : ''}
+      <button class="btn-phrases ${state.showPhrases ? 'active' : ''}" onclick="togglePhrases()">快捷短语</button>
+      <button class="btn-translate ${state.isTranslating ? 'translating' : ''}"
+        onclick="translateText()"
+        ${!state.text.trim() || state.isTranslating ? 'disabled' : ''}
+        title="翻译 Translate">
+        ${state.isTranslating ? icons.translate + ' …' : icons.translate + ' 翻译'}
+      </button>
+      <button class="btn-speak ${state.isSpeaking ? 'speaking' : 'ready'}"
+        onclick="${state.isSpeaking ? 'stopSpeaking()' : 'speakCurrent()'}"
+        ${!state.text.trim() && !state.isSpeaking ? 'disabled' : ''}>
+        ${state.isSpeaking ? icons.stop + ' 停止' : icons.play + ' 朗读'}
+      </button>
+    `;
+  }
 }
 
 // ── Translation ──────────────────────────────────────────────

@@ -86,7 +86,7 @@ body {
 
 #app {
   height: 100%;
-  max-width: 520px;
+  max-width: 768px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -449,7 +449,7 @@ body {
 }
 .keyboard-topbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   padding-right: 4px;
 }
@@ -458,7 +458,7 @@ body {
   border: none;
   font-size: 13px;
   color: var(--text-secondary);
-  padding: 6px 10px;
+  padding: 10px 10px;
   cursor: pointer;
   border-radius: var(--radius-sm);
   flex-shrink: 0;
@@ -467,12 +467,14 @@ body {
   display: flex;
   justify-content: center;
   gap: 0;
+  flex: 1;
   margin-bottom: 6px;
   padding: 0 8px;
 }
 .mode-tab {
   flex: 1;
-  padding: 6px 0;
+  padding: 10px 0;
+  min-height: 44px;
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
@@ -863,7 +865,7 @@ body {
 }
 
 /* Responsive */
-@media (min-width: 520px) {
+@media (min-width: 768px) {
   #app { border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
 }
 @media (max-height: 600px) {
