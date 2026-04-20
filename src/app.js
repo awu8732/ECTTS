@@ -1295,7 +1295,7 @@ function render() {
           </div>
           <div class="handwrite-area">
             <div class="canvas-wrap">
-              <canvas id="hw-canvas" width="600" height="220"></canvas>
+              <canvas id="hw-canvas" width="600" height="300"></canvas>
               <div class="canvas-grid"></div>
               <div class="canvas-hint">在此区域手写输入</div>
               <div class="canvas-actions">
