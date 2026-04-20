@@ -184,7 +184,7 @@ body {
   border: none;
   outline: none;
   resize: none;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1.5;
   font-family: inherit;
   background: transparent;
@@ -196,8 +196,8 @@ body {
 }
 .composer-actions {
   display: flex;
-  gap: 8px;
-  padding-top: 8px;
+  gap: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--border);
   justify-content: flex-end;
   align-items: center;
@@ -207,19 +207,19 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 8px;
   border: none;
-  font-size: 12px;
+  font-size: 15px;
   color: var(--text-secondary);
   background: var(--bg-app);
   cursor: pointer;
 }
 .btn-phrases {
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-radius: 8px;
   border: none;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -236,10 +236,10 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 10px 20px;
   border-radius: var(--radius-md);
   border: none;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: #fff;
   cursor: pointer;
@@ -556,8 +556,8 @@ body {
 }
 .key {
   flex: 1 1 0;
-  max-width: 42px;
-  height: 44px;
+  max-width: 70px;
+  height: 70px;
   border-radius: var(--radius-key);
   border: none;
   background: var(--bg-key);
@@ -576,7 +576,7 @@ body {
 .key:active, .key.active { background: var(--bg-key-active); transform: scale(0.95); }
 .key.special {
   flex: 0 0 auto;
-  min-width: 44px;
+  min-width: 84px;
   background: var(--bg-key-special);
   font-size: 14px;
 }
@@ -586,8 +586,8 @@ body {
   gap: 5px;
 }
 .key-globe {
-  width: 44px;
-  height: 44px;
+  width: 65px;
+  height: 60px;
   border-radius: var(--radius-key);
   border: none;
   background: var(--bg-key-special);
@@ -600,7 +600,7 @@ body {
 }
 .key-space {
   flex: 1;
-  height: 44px;
+  height: 60px;
   border-radius: var(--radius-key);
   border: none;
   background: var(--bg-key);
@@ -612,8 +612,8 @@ body {
   letter-spacing: 0.5px;
 }
 .key-return {
-  width: 80px;
-  height: 44px;
+  width: 100px;
+  height: 60px;
   border-radius: var(--radius-key);
   border: none;
   background: var(--accent);
@@ -870,7 +870,7 @@ body {
 }
 @media (max-height: 600px) {
   .composer { min-height: 60px; }
-  .composer textarea { min-height: 30px; font-size: 16px; }
+  .composer textarea { min-height: 30px; font-size: 18px; }
   .key { height: 38px; }
   .key-space, .key-globe, .key-return { height: 38px; }
 }
@@ -880,10 +880,10 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 8px 14px;
+  padding: 10px 16px;
   border-radius: var(--radius-md);
   border: none;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: #fff;
   background: var(--accent);
